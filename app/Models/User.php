@@ -2,15 +2,27 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+
+use App\Traits\Uuids;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+
+/**
+ * @property \Illuminate\Database\Eloquent\Collection<int, \App\Models\Domain> $domains
+ */
 
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable;
+    /**
+     * @mixin \Laravel\Sanctum\HasApiTokens
+     * @mixin \Illuminate\Database\Eloquent\SoftDeletes
+     * @mixin \App\Traits\Uuids
+     */
+    use HasApiTokens, SoftDeletes, Uuids;
+
+    protected $primaryKey = 'id';
 
     /**
      * The attributes that are mass assignable.
@@ -18,10 +30,38 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
-        'name',
+        'uuid',
+        'first_name',
+        'last_name',
         'email',
         'password',
+        'status',
+        'user_origin',
+        'role',
+        'external_role',
+        'image_url',
+        'failed_attempts',
+        'locked_until'
     ];
+
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+        'locked_until' => 'datetime',
+    ];
+
+    protected $appends = ['image_url_full'];
+
+    public function getImageUrlFullAttribute(): ?string
+    {
+        if (!$this->image_url) {
+            return null;
+        }
+
+        // Manually construct the URL without double slashes
+        return str_replace('//', '/', url('storage/' . $this->image_url));
+    }
+
 
     /**
      * The attributes that should be hidden for serialization.
@@ -44,5 +84,34 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /** Domains the user may access */
+    public function domains()
+    {
+        return $this->belongsToMany(Domain::class, 'user_domain_access')
+            ->withTimestamps();
+    }
+
+    public function blacklistedJwts()
+    {
+        return $this->hasMany(BlacklistedJwt::class);
+    }
+
+    /** Activities by the user */
+    public function activities()
+    {
+        return $this->hasMany(UserActivity::class);
+    }
+    
+    /**
+     * Check if the user has an admin role.
+     *
+     * @return bool
+     */
+    public function isAdmin(): bool
+    {
+        // Accommodate both a direct 'role' property and a potential 'hasRole' method from a package.
+        return (method_exists($this, 'hasRole') && $this->hasRole('admin')) || $this->role === 'admin';
     }
 }

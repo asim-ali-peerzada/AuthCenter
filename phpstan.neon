@@ -1,0 +1,17 @@
+includes:
+    - ./vendor/nunomaduro/larastan/extension.neon
+
+parameters:
+    level: 4
+    paths:
+        - app
+
+    excludePaths:
+        - tests/*
+        - database/migrations/*
+
+    ignoreErrors:
+        - '#Relation .* is not found in App\\Models\\.* model#'
+        - '#Call to an undefined method Illuminate\\.*#'
+        - '#Method Illuminate\\.* does not exist#'
+        - '#Expression on left side of \?\? is not nullable#'
