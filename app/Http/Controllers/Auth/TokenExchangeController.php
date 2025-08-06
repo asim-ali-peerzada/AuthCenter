@@ -41,6 +41,14 @@ class TokenExchangeController extends Controller
             // Find user by UUID
             $user = User::where('uuid', $payload->sub)->firstOrFail();
 
+            // Check if the user account has been approved.
+            if (! $user->is_approved) {
+                return response()->json([
+                    'message' => 'Your account is in pending for approval. Please wait for confirmation or contact support for assistance.',
+                    'error' => 'account_not_approved'
+                ], 403);
+            }
+
             // Get the domain key from the request.
             $domainKey = $request->input('key');
             if (!$domainKey) {

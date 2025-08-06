@@ -26,7 +26,7 @@ class SignupRequest extends FormRequest
             'last_name'     => 'required|string|max:100',
             'key'     => 'required|string|max:20',
             'email'    => 'required|email:rfc,dns|unique:users,email',
-            'password' => 'required|string|min:8|max:64|confirmed',
+            'password' => 'required|string|min:8|max:64',
         ];
     }
 }

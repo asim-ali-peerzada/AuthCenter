@@ -25,7 +25,7 @@ class LoginRequest extends FormRequest
             'email'    => 'required|email:rfc,dns',
             'password' => 'required|string|min:8|max:64',
             'admin_panel' => 'nullable|boolean',
-            'recaptcha'    => 'required|string',  
+            'recaptcha'    => 'nullable|string',  
         ];
     }
 }

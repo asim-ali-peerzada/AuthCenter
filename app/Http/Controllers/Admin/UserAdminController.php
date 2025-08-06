@@ -26,6 +26,7 @@ class UserAdminController extends Controller
     {
         $users = User::with('domains:id,name,url')
             ->where('role', '!=', 'admin')
+            ->where('is_approved', true)
             ->orderBy('first_name', 'asc')
             ->get();
 
@@ -214,11 +215,16 @@ class UserAdminController extends Controller
     {
         $query = $request->query('query');
         $status = $request->query('status');
+        $pending = $request->query('pending');
 
         $usersQuery = User::query()
+            ->when($pending === 'true', function ($q) {
+                $q->where('is_approved', false);
+            }, function ($q) {
+                $q->where('is_approved', true);
+            })
             ->where('role', '!=', 'admin')
             ->with('domains:id,name,url');
-
         // Apply search if query parameter exists
         if ($query) {
             $usersQuery->where(function ($q) use ($query) {
@@ -245,6 +251,9 @@ class UserAdminController extends Controller
                     'email' => $user->email,
                     'status' => $user->status,
                     'role' => $user->role,
+                    'user_origin' => $user->user_origin,
+                    'is_approved' => $user->is_approved,
+                    'locked_until' => $user->locked_until,
                     'created_at' => $user->created_at,
                     'domains' => $user->domains->map(function ($domain) {
                         return [
@@ -266,7 +275,7 @@ class UserAdminController extends Controller
     // Users filtered
     public function filtered(Request $request)
     {
-        $query = User::query();
+        $query = User::query()->where('is_approved', true);
 
         $domain = $request->input('domain');
         $status = $request->input('status');
@@ -285,7 +294,11 @@ class UserAdminController extends Controller
         }
 
         if ($status && $status !== 'all') {
-            $query->where('status', $status);
+            if ($status === 'locked') {
+                $query->whereNotNull('locked_until');
+            } else {
+                $query->where('status', $status);
+            }
         }
 
         if ($role && $role !== 'all') {
@@ -302,5 +315,40 @@ class UserAdminController extends Controller
         $transformedUsers = $this->transformUsers($users);
 
         return response()->json($transformedUsers);
+    }
+
+    /**
+     * Unlock a user account by resetting 'locked_until' and 'failed_attempts'.
+     *
+     * @param Request $request The incoming request.
+     * @return JsonResponse
+     */
+    public function unlockUser(Request $request): JsonResponse
+    {
+        $request->validate([
+            'uuids' => 'required|array|min:1',
+            'uuids.*' => 'uuid|exists:users,uuid',
+        ]);
+
+        $uuids = $request->input('uuids');
+
+        try {
+            User::whereIn('uuid', $uuids)->update([
+                'locked_until' => null,
+                'failed_attempts' => 0,
+            ]);
+
+            return response()->json([
+                'message' => 'User accounts unlocked successfully.',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to unlock user accounts', [
+                'user_ids' => $uuids,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'message' => 'Failed to unlock user accounts.',
+            ], 500);
+        }
     }
 }

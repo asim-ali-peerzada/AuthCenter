@@ -36,12 +36,16 @@ class User extends Authenticatable
         'email',
         'password',
         'status',
+        'is_approved',
         'user_origin',
         'role',
         'external_role',
         'image_url',
         'failed_attempts',
-        'locked_until'
+        'locked_until',
+        'google2fa_secret',
+        'is_2fa_enabled',
+        'is_2fa_verified',
     ];
 
     protected $casts = [

@@ -74,4 +74,9 @@ return [
     'recaptcha' => [
         'secret' => env('RECAPTCHA_SECRET_KEY'),
     ],
+
+    'solucomp_page_permissions' => [
+        'permissions' => env('SOLUCOMP_USERPAGE_PERMISSION'),
+    ],
+
 ];

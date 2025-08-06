@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Log;
 class AuthAttemptService
 {
     public const MAX_ATTEMPTS = 3;
-    public const LOCK_MINUTES = 15;
 
     public function recordFailure(User $user): void
     {
@@ -19,7 +18,7 @@ class AuthAttemptService
         if ($failedAttempts >= self::MAX_ATTEMPTS) {
             $user->update([
                 'failed_attempts' => $failedAttempts,
-                'locked_until' => now()->addMinutes(self::LOCK_MINUTES),
+                'locked_until' => now()->addYears(10), // Lock for 10 years, effectively "permanent"
             ]);
         } else {
             $user->update([
