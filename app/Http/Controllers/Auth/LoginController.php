@@ -23,7 +23,8 @@ class LoginController extends Controller
         JwtService         $jwt,
         AuthAttemptService $attempts
     ) {
-        // $captcha = $this->verifyRecaptcha($request->recaptcha);
+
+        $captcha = $this->verifyRecaptcha($request->recaptcha);
 
         /** @var User|null $user */
         $user = User::where('email', $request->email)->first();
@@ -56,13 +57,13 @@ class LoginController extends Controller
         }
 
         if (! $user->is_2fa_verified) {
-                return response()->json([
-                    'message' => 'Please configure Two-Factor Authentication using Google Authenticator.',
-                    'error'   => '2fa_not_configured',
-                    'action'  => 'trigger_2fa_setup_modal',
-                    'uuid'    => $user->uuid,
-                ], 403);
-            }
+            return response()->json([
+                'message' => 'Please configure Two-Factor Authentication using Google Authenticator.',
+                'error'   => '2fa_not_configured',
+                'action'  => 'trigger_2fa_setup_modal',
+                'uuid'    => $user->uuid,
+            ], 403);
+        }
 
         if ($request->input('admin_panel')) {
             $isAdmin = method_exists($user, 'hasRole')
@@ -94,6 +95,9 @@ class LoginController extends Controller
         $response = [
             'uuid' => $user->uuid,
             'token' => $token,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
             'refresh_token' => $refreshToken,
             'enforce_2fa_login' => $enforce2FA,
         ];

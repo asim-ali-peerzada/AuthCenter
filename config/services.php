@@ -77,6 +77,7 @@ return [
 
     'solucomp_page_permissions' => [
         'permissions' => env('SOLUCOMP_USERPAGE_PERMISSION'),
+        'page_permissions' => env('SOLUCOMP_PAGE_PERMISSION'),
     ],
 
 ];

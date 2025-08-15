@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncPagePermissionJob;
 use App\Models\Domain;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -14,16 +15,52 @@ class AccessAdminController extends Controller
     {
         $user->domains()->syncWithoutDetaching($domain->id);
 
+        // Dispatch job for solucomp domains
+        $this->dispatchPagePermissionJob($user, $domain, 'assign');
+
         return response()->json(['message' => 'Access granted']);
     }
 
     // revoke access
     public function revoke(User $user, Domain $domain): JsonResponse
     {
-
-
         $user->domains()->detach($domain->id);
 
+        // Dispatch job for solucomp domains
+        $this->dispatchPagePermissionJob($user, $domain, 'revoke');
+
         return response()->json(['message' => 'Access revoked']);
+    }
+
+    /**
+     * Dispatch page permission job for solucomp domains
+     *
+     * @param User $user
+     * @param Domain $domain
+     * @param string $action
+     * @return void
+     */
+    private function dispatchPagePermissionJob(User $user, Domain $domain, string $action): void
+    {
+        // Check if domain key is one of the solucomp domains
+        if (!in_array($domain->key, ['solucomp_cop', 'solucomp_compare'])) {
+            return;
+        }
+
+        // Determine permission based on domain key
+        $permission = match ($domain->key) {
+            'solucomp_cop' => '/Admin/cop',
+            'solucomp_compare' => '/Admin/compare',
+            default => null,
+        };
+
+        if ($permission) {
+            SyncPagePermissionJob::dispatch(
+                $user->uuid,
+                $permission,
+                $action,
+                $domain->key
+            );
+        }
     }
 }
