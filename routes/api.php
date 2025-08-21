@@ -17,6 +17,7 @@ use App\Http\Controllers\Auth\RefreshTokenController;
 use App\Http\Controllers\Export\ExportController;
 use App\Http\Controllers\Admin\UserApprovalController;
 use App\Http\Controllers\Auth\TwoFactorAuthController;
+use App\Http\Controllers\upload\SiteUploadController;
 
 Route::prefix('auth')->group(function () {
 
@@ -33,6 +34,14 @@ Route::prefix('auth')->group(function () {
     /* JWT redemption (rate‑limited) */
     Route::post('token/exchange', [TokenExchangeController::class, 'tokenExchange'])
         ->middleware('throttle:10,1');
+
+    // sites/hubs data
+    Route::get('sites', [SiteUploadController::class, 'index']);
+    // specific site details
+    Route::post('site-details', [SiteUploadController::class, 'getSiteDetails']);
+
+    // Update hub access details
+    Route::put('sites/{id}/access-details', [SiteUploadController::class, 'updateAccessDetails']);
 
     /* ── protected by jwt guard + blacklist check ── */
     Route::middleware(['auth:jwt', 'jwt.blacklist'])->group(function () {
@@ -101,6 +110,12 @@ Route::prefix('admin')
         // Enforce 2FA login setting
         Route::post('enforce-login', [TwoFactorAuthController::class, 'updateEnforce2FALogin']);
         Route::get('enforce-login', [TwoFactorAuthController::class, 'getEnforce2FALogin']);
+
+        // Upload Excel
+        Route::post('sites/upload', [SiteUploadController::class, 'uploadExcel']);
+
+        // File processing status polling endpoint
+        Route::get('sites/files/{fileId}/status', [SiteUploadController::class, 'getFileStatus']);
     });
 
 // Internal sync endpoint & token refresh
