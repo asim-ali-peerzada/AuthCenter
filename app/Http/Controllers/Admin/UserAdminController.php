@@ -73,6 +73,10 @@ class UserAdminController extends Controller
         $payload = $request->validated();
         $payload['password'] = $request->password;
 
+        if ($request->has('is_approved') && $request->boolean('is_approved')) {
+            $payload['is_approved'] = true;
+        }
+
         $user = User::create($payload);
 
         return response()->json($user, 201);

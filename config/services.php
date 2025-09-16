@@ -56,6 +56,7 @@ return [
     'base_url' => env('CCMS_BASE_URL', 'http://localhost:8000/api'),
     'job_finder_base_url' => env('JOB_FINDER_BASE_URL', 'http://localhost:8003/api'),
     'solucomp_base_url' => env('SOLUCOMP_BASE_URL', 'http://localhost:8004/api'),
+    'samsung_base_url' => env('SAMSUNG_BASE_URL', 'http://localhost:8005/api'),
     'job_finder_sync' => env('JOB_FINDER_SYNC', 'http://localhost:8003/api/auth-sync'),
     'ccms_sync' => env('CCMS_SYNC', 'http://localhost:8000/api/auth-sync'),
 

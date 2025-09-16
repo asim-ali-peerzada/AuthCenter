@@ -13,6 +13,7 @@ use App\Jobs\ProcessSiteExcelJob;
 use App\Jobs\ProcessHubExcelJob;
 use App\Services\SiteExcelService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 
 
 class SiteUploadController extends Controller
@@ -43,7 +44,7 @@ class SiteUploadController extends Controller
                 ProcessHubExcelJob::dispatch($uploadedFile);
                 $message = 'Hub file uploaded successfully and processing has started.';
             } else {
-                ProcessSiteExcelJob::dispatch($uploadedFile);
+                ProcessSiteExcelJob::dispatch($uploadedFile->id);
                 $message = 'Site file uploaded successfully and processing has started.';
             }
 
@@ -117,11 +118,11 @@ class SiteUploadController extends Controller
     public function getSiteDetails(SiteDetailsRequest $request): JsonResponse
     {
         try {
-            $siteNames = $request->input('siteNames');
+            $siteName = $request->input('siteNames'); // single value now
             $siteType = $request->input('site_type');
 
-            // If siteNames is ["selected_All"], fetch all records for the given type
-            $isAll = is_array($siteNames) && count($siteNames) === 1 && $siteNames[0] === 'selected_All';
+            // If siteName is "selected_All", fetch all records for the given type
+            $isAll = $siteName === 'selected_All';
 
             if ($siteType === 'hub') {
                 // Search in Hub model using ohpa_site field
@@ -130,7 +131,7 @@ class SiteUploadController extends Controller
                 if ($isAll) {
                     $query->whereNotNull('ohpa_site');
                 } else {
-                    $query->whereIn('ohpa_site', $siteNames);
+                    $query->where('ohpa_site', $siteName);
                 }
 
                 $sites = $query->get();
@@ -138,7 +139,7 @@ class SiteUploadController extends Controller
                 return response()->json([
                     'success' => true,
                     'site_type' => 'hub',
-                    'requested_sites' => $siteNames,
+                    'requested_site' => $siteName,
                     'found_count' => $sites->count(),
                     'data' => $sites,
                 ], 200);
@@ -149,7 +150,7 @@ class SiteUploadController extends Controller
                 if ($isAll) {
                     $query->whereNotNull('site_name');
                 } else {
-                    $query->whereIn('site_name', $siteNames);
+                    $query->where('site_name', $siteName);
                 }
 
                 $sites = $query->get();
@@ -157,7 +158,7 @@ class SiteUploadController extends Controller
                 return response()->json([
                     'success' => true,
                     'site_type' => 'smallcell',
-                    'requested_sites' => $siteNames,
+                    'requested_site' => $siteName,
                     'found_count' => $sites->count(),
                     'data' => $sites,
                 ], 200);
@@ -170,6 +171,7 @@ class SiteUploadController extends Controller
             ], 500);
         }
     }
+
 
     /**
      * Update access details for a specific hub site.
@@ -223,42 +225,46 @@ class SiteUploadController extends Controller
     public function getFileStatus(Request $request, $fileId): JsonResponse
     {
         try {
-            $request->validate([
-                'include_errors' => 'sometimes',
-            ]);
+            $response = Cache::remember('file_status_' . $fileId, 60, function () use ($request, $fileId) {
+                $request->validate([
+                    'include_errors' => 'sometimes',
+                ]);
 
-            $siteAccessFile = SiteAccessFile::findOrFail($fileId);
+                $siteAccessFile = SiteAccessFile::findOrFail($fileId);
 
-            $includeErrors = $request->boolean('include_errors', false);
+                $includeErrors = $request->boolean('include_errors', false);
 
-            $response = [
-                'success' => true,
-                'data' => [
-                    'file_id' => $siteAccessFile->id,
-                    'file_name' => $siteAccessFile->original_file_name,
-                    'file_type' => $siteAccessFile->file_type,
-                    'status' => $siteAccessFile->status,
-                    'uploaded_at' => $this->formatDateTime($siteAccessFile->uploaded_at),
-                    'completed_at' => $this->formatDateTime($siteAccessFile->completed_at),
-                    'progress' => [
-                        'total_records' => $siteAccessFile->total_records ?? 0,
-                        'processed_records' => $siteAccessFile->processed_records ?? 0,
-                        'failed_records' => $siteAccessFile->failed_records ?? 0,
-                        'success_records' => max(0, ($siteAccessFile->processed_records ?? 0) - ($siteAccessFile->failed_records ?? 0)),
-                        'percentage' => $this->calculateProgressPercentage($siteAccessFile),
+                $response = [
+                    'success' => true,
+                    'data' => [
+                        'file_id' => $siteAccessFile->id,
+                        'file_name' => $siteAccessFile->original_file_name,
+                        'file_type' => $siteAccessFile->file_type,
+                        'status' => $siteAccessFile->status === 'pending' ? 'processing' : $siteAccessFile->status,
+                        'uploaded_at' => $this->formatDateTime($siteAccessFile->uploaded_at),
+                        'completed_at' => $this->formatDateTime($siteAccessFile->completed_at),
+                        'progress' => [
+                            'total_records' => $siteAccessFile->total_records ?? 0,
+                            'processed_records' => $siteAccessFile->processed_records ?? 0,
+                            'failed_records' => $siteAccessFile->failed_records ?? 0,
+                            'success_records' => max(0, ($siteAccessFile->processed_records ?? 0) - ($siteAccessFile->failed_records ?? 0)),
+                            'percentage' => $this->calculateProgressPercentage($siteAccessFile),
+                        ],
+                        'processing_time' => $this->calculateProcessingTime($siteAccessFile),
                     ],
-                    'processing_time' => $this->calculateProcessingTime($siteAccessFile),
-                ],
-            ];
+                ];
 
-            // Include errors only if requested and they exist
-            if ($includeErrors && !empty($siteAccessFile->errors)) {
-                $response['data']['errors'] = $siteAccessFile->errors;
-                $response['data']['error_count'] = count($siteAccessFile->errors);
-            }
+                // Include errors only if requested and they exist
+                if ($includeErrors && !empty($siteAccessFile->errors)) {
+                    $response['data']['errors'] = $siteAccessFile->errors;
+                    $response['data']['error_count'] = count($siteAccessFile->errors);
+                }
 
-            // Add polling recommendations based on status
-            $response['data']['polling'] = $this->getPollingRecommendations($siteAccessFile->status);
+                // Add polling recommendations based on status
+                $response['data']['polling'] = $this->getPollingRecommendations($siteAccessFile->status);
+
+                return $response;
+            });
 
             return response()->json($response, 200);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

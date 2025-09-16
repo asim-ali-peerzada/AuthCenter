@@ -36,6 +36,7 @@ class StoreUserRequest extends FormRequest
             ],
             'role' => 'required|in:user,admin',
             'status' => 'nullable|in:active,inactive',
+            'is_approved' => 'nullable|boolean',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ];
     }

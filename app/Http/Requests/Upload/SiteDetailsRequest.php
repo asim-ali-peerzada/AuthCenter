@@ -20,7 +20,7 @@ class SiteDetailsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'siteNames' => 'required|array|min:1|max:100',
+            'siteNames' => 'required|min:1|max:100',
             'siteNames.*' => 'required|string|max:255',
             'site_type' => 'required|string|in:hub,smallcell,selected_All',
         ];

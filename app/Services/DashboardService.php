@@ -16,6 +16,7 @@ class DashboardService
         protected CcmsApiService $ccmsApiService,
         protected JobFinderApiService $jobFinderApiService,
         protected SolucompApiService $solucompApiService,
+        protected SamsungApiService $samsungApiService,
     ) {}
     public function getSummary(): array
     {
@@ -25,6 +26,7 @@ class DashboardService
 
         $solucompSummary =  $this->solucompApiService->fetchSummary();
 
+        $samsungSummary =  $this->samsungApiService->fetchSummary();
 
         $now = Carbon::now();
         $startOfCurrentMonth = $now->copy()->startOfMonth();
@@ -69,6 +71,7 @@ class DashboardService
             'ccms' => $ccmsSummary,
             'job_finder' => $jobFinderSummary,
             'solucomp' => $solucompSummary,
+            'samsung' => $samsungSummary,
             'total_users' => $totalUsers,
             'total_domains' => $totalDomains,
             'total_sessions_24h' => $totalSessions24h,

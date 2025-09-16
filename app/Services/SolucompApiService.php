@@ -25,11 +25,11 @@ class SolucompApiService
                 return $response->json();
             }
 
-            Log::warning('JobFinder API error: ' . $response->body());
-            return ['error' => 'JobFinder API call failed'];
+            Log::warning('Solucomp API error: ' . $response->body());
+            return ['error' => 'Solucomp API call failed'];
         } catch (\Exception $e) {
-            Log::error('JobFinder API exception: ' . $e->getMessage());
-            return ['error' => 'JobFinder API exception occurred'];
+            Log::error('Solucomp API exception: ' . $e->getMessage());
+            return ['error' => 'Solucomp API exception occurred'];
         }
     }
 }

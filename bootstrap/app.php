@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
          $middleware->alias([
             'jwt.blacklist' => \App\Http\Middleware\CheckJwtBlacklist::class,
             'is.admin'  => \App\Http\Middleware\IsAdmin::class,
+            'auth.sync.secret' => \App\Http\Middleware\VerifySyncSecret::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -47,7 +47,6 @@ class DomainController extends Controller
 
         if ($permissionsUrl && $request->bearerToken()) {
             try {
-                log::info('coming insider the if condition');
                 $response = Http::withToken($request->bearerToken())
                     ->acceptJson()
                     ->get($permissionsUrl);
@@ -70,8 +69,6 @@ class DomainController extends Controller
                 ]);
             }
         }
-
-        log::info($permissions);
 
         return response()->json([
             'domains'          => $domains,

@@ -16,6 +16,7 @@ use App\Http\Controllers\Sync\InternalSyncController;
 use App\Http\Controllers\Auth\RefreshTokenController;
 use App\Http\Controllers\Export\ExportController;
 use App\Http\Controllers\Admin\UserApprovalController;
+use App\Http\Controllers\External\ExternalDataController;
 use App\Http\Controllers\Auth\TwoFactorAuthController;
 use App\Http\Controllers\upload\SiteUploadController;
 
@@ -121,3 +122,8 @@ Route::prefix('admin')
 // Internal sync endpoint & token refresh
 Route::post('/internal-sync-user', [InternalSyncController::class, 'store']);
 Route::post('/token/refresh', [RefreshTokenController::class, 'refresh']);
+
+// Routes for external services to fetch data
+Route::middleware('auth.sync.secret')->group(function () {
+    Route::get('/external_small_cell', [ExternalDataController::class, 'getSiteData'])->name('external.site-names');
+});

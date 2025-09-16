@@ -15,6 +15,13 @@ class AccessAdminController extends Controller
     {
         $user->domains()->syncWithoutDetaching($domain->id);
 
+        if (in_array($domain->key, ['solucomp_cop', 'solucomp_compare'])) {
+            $mainDomain = Domain::where('key', 'solucomp')->first(); // or ->value('id');
+            if ($mainDomain) {
+                $user->domains()->syncWithoutDetaching($mainDomain->id);
+            }
+        }
+
         // Dispatch job for solucomp domains
         $this->dispatchPagePermissionJob($user, $domain, 'assign');
 

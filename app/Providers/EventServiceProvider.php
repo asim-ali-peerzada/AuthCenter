@@ -9,6 +9,8 @@ use App\Listeners\LogUserLogoutActivity;
 use App\Listeners\LogUserSession;
 use Illuminate\Container\Attributes\Log;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
+use App\Models\SiteAccessFile;
+use App\Observers\SiteAccessFileObserver;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -32,6 +34,6 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        SiteAccessFile::observe(SiteAccessFileObserver::class);
     }
 }

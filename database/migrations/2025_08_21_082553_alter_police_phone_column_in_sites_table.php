@@ -11,9 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('staging_sites', function (Blueprint $table) {
-            $table->id();
-            $table->timestamps();
+        Schema::table('sites', function (Blueprint $table) {
+             $table->text('police_phone')->nullable()->change();
         });
     }
 
@@ -22,6 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('staging_sites');
+        Schema::table('sites', function (Blueprint $table) {
+            $table->string('police_phone', 20)->nullable()->change();
+        });
     }
 };

@@ -54,6 +54,7 @@ class InternalSyncController extends Controller
                         'password' => $data['password'],
                         'user_origin' => $data['user_origin'],
                         'status' => $data['action'] === 'deactivated' ? 'inactive' : 'active',
+                        'is_approved' => true,
                     ]);
                 });
 
@@ -70,12 +71,22 @@ class InternalSyncController extends Controller
                     }
                 }
 
-                // Attach 'jobfinder' by default.
-                $jobfinderDomain = Domain::where('key', 'jobfinder')->first();
-                if ($jobfinderDomain) {
-                    $domainIdsToAttach[] = $jobfinderDomain->id;
+                // Decide whether to attach the default 'jobfinder' domain based on external_role
+                $externalRole = strtolower((string)($data['role'] ?? ''));
+                if ($externalRole === '' || $externalRole === 'user') {
+                    // Attach 'jobfinder' by default only for null/empty or 'user' roles
+                    $jobfinderDomain = Domain::where('key', 'jobfinder')->first();
+                    if ($jobfinderDomain) {
+                        $domainIdsToAttach[] = $jobfinderDomain->id;
+                    } else {
+                        Log::warning('Default domain "jobfinder" not found during sync.');
+                    }
+                } else if ($externalRole === 'admin') {
+                    // For admin: do not attach jobfinder; rely solely on origin (if any)
+                    // Intentionally left blank
                 } else {
-                    Log::warning('Default domain "jobfinder" not found during sync.');
+                    // For any other roles, current policy: do not attach jobfinder
+                    // Intentionally left blank
                 }
 
                 // Attach all unique domain IDs if the user was created successfully.
