@@ -19,6 +19,8 @@ use App\Http\Controllers\Admin\UserApprovalController;
 use App\Http\Controllers\External\ExternalDataController;
 use App\Http\Controllers\Auth\TwoFactorAuthController;
 use App\Http\Controllers\upload\SiteUploadController;
+use App\Http\Controllers\AccessRequest\AccessRequestController;
+use App\Http\Controllers\DomainStatus\DomainStatusController;
 
 Route::prefix('auth')->group(function () {
 
@@ -69,6 +71,26 @@ Route::prefix('auth')->group(function () {
                 ]
             ]);
         });
+
+        // Access Request for user
+        Route::post('/access-requests', [AccessRequestController::class, 'store'])
+            ->middleware('access.request:create')
+            ->name('access-requests.store');
+        Route::get('/access-requests', [AccessRequestController::class, 'index'])
+            ->middleware('access.request:view')
+            ->name('access-requests.index');
+        Route::delete('/access-requests/{accessRequest}', [AccessRequestController::class, 'destroy'])
+            ->name('access-requests.destroy');
+        Route::patch('/access-requests/{accessRequestId}/resubmit', [AccessRequestController::class, 'resubmit'])
+            ->name('access-requests.resubmit');
+
+        // Activation Request for user
+        Route::post('/activation-requests', [AccessRequestController::class, 'storeActivation'])
+            ->middleware('access.request:create')
+            ->name('activation-requests.store');
+
+        // Domain status
+        Route::post('status/domains', [DomainStatusController::class, 'jobFinderStatus']);
     });
 });
 
@@ -117,6 +139,16 @@ Route::prefix('admin')
 
         // File processing status polling endpoint
         Route::get('sites/files/{fileId}/status', [SiteUploadController::class, 'getFileStatus']);
+
+        // Access Request for Admin
+        Route::get('/access-requests/search', [AccessRequestController::class, 'search'])
+            ->name('admin.access-requests.search');
+        Route::post('/access-requests/{accessRequestId}/approve', [AccessRequestController::class, 'approve'])
+            ->middleware('access.request:manage')
+            ->name('access-requests.approve');
+        Route::post('/access-requests/{accessRequestId}/reject', [AccessRequestController::class, 'reject'])
+            ->middleware('access.request:manage')
+            ->name('access-requests.reject');
     });
 
 // Internal sync endpoint & token refresh

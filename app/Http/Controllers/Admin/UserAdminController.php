@@ -24,8 +24,13 @@ class UserAdminController extends Controller
     // GET Users
     public function index(): JsonResponse
     {
+        log::info('HIT...................................');
         $users = User::with('domains:id,name,url')
             ->where('role', '!=', 'admin')
+            ->where(function ($query) {
+                $query->where('user_origin', 'jobfinder')
+                      ->orWhere('external_role', 'Admin');
+            })
             ->where('is_approved', true)
             ->orderBy('first_name', 'asc')
             ->get();
@@ -228,6 +233,10 @@ class UserAdminController extends Controller
                 $q->where('is_approved', true);
             })
             ->where('role', '!=', 'admin')
+            ->where(function ($query) {
+                $query->where('user_origin', 'jobfinder')
+                      ->orWhere('external_role', 'Admin');
+            })
             ->with('domains:id,name,url');
         // Apply search if query parameter exists
         if ($query) {
@@ -313,6 +322,10 @@ class UserAdminController extends Controller
             $query->where($roleColumn, $searchValue);
         } else {
             $query->where('role', '!=', 'admin');
+            $query->where(function ($query) {
+                $query->where('user_origin', 'jobfinder')
+                      ->orWhere('external_role', 'Admin');
+            });
         }
         $users = $query->orderBy('created_at', 'desc')->get();
 

@@ -21,34 +21,49 @@ class DomainController extends Controller
     public function index(Request $request): JsonResponse
     {
         /** @var \App\Models\User|null $user */
-
         $user = Auth::user();
 
         if (! $user) {
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $domains = Domain::all(['id', 'name', 'url','key']);
+        // Build domain query with conditional exclusion
+        $domainQuery = Domain::select(['id', 'name', 'url', 'key'])->where('key', '!=', 'solucomp');
 
+        // Exclude Samsung domain for external admin users
+        if ($user->external_role === 'Admin') {
+            $domainQuery->where('key', '!=', 'samsung2025_dm');
+        }
+
+        $domains = $domainQuery->get();
+
+        // Optimize assigned domains query
         if ($user->isAdmin()) {
             $assigned = $domains->pluck('id')->all();
         } else {
+            // Use direct pluck instead of loading relationships
             $assigned = $user->domains()->pluck('domains.id')->all();
         }
 
+        // Initialize permissions early
         $permissions = [];
         $permissionsUrl = config('services.solucomp_page_permissions.permissions');
+        $bearerToken = $request->bearerToken();
 
-        if (!$permissionsUrl) {
-            Log::warning('SOLUCOMP_USERPAGE_PERMISSION environment variable is not set. Cannot fetch page permissions.');
-        } elseif (!$request->bearerToken()) {
-            Log::warning('Request is missing Bearer token. Cannot fetch page permissions.');
-        }
-
-        if ($permissionsUrl && $request->bearerToken()) {
+        // Early return if no permissions URL or token
+        if (!$permissionsUrl || !$bearerToken) {
+            if (!$permissionsUrl) {
+                Log::warning('SOLUCOMP_USERPAGE_PERMISSION environment variable is not set. Cannot fetch page permissions.');
+            }
+            if (!$bearerToken) {
+                Log::warning('Request is missing Bearer token. Cannot fetch page permissions.');
+            }
+        } else {
+            // Fetch permissions with timeout and error handling
             try {
-                $response = Http::withToken($request->bearerToken())
+                $response = Http::withToken($bearerToken)
                     ->acceptJson()
+                    ->timeout(5) // Add timeout to prevent hanging
                     ->get($permissionsUrl);
 
                 if ($response->successful()) {
@@ -57,7 +72,6 @@ class DomainController extends Controller
                     Log::warning('Failed to fetch page permissions for user from SoluComp.', [
                         'user_uuid' => $user->uuid,
                         'status' => $response->status(),
-                        'body' => $response->body(),
                         'url' => $permissionsUrl,
                     ]);
                 }

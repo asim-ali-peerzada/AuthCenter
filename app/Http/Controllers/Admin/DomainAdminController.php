@@ -20,7 +20,8 @@ class DomainAdminController extends Controller
     /* GET domains */
     public function index(): JsonResponse
     {
-        return response()->json(Domain::all());
+        $domains = Domain::where('key', '!=', 'solucomp')->get();
+        return response()->json($domains);
     }
 
     public function show(Domain $domain): JsonResponse

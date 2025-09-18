@@ -81,4 +81,8 @@ return [
         'page_permissions' => env('SOLUCOMP_PAGE_PERMISSION'),
     ],
 
+    'sso' => [
+        'shared_token' => env('SSO_SHARED_TOKEN'),
+    ],
+
 ];

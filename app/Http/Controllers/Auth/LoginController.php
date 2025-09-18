@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\User;
 use App\Models\Domain;
 use App\Models\SystemSetting;
+use App\Models\AccessRequest;
 use Illuminate\Http\Request;
 use App\Services\TwoFactorAuthService;
 use Illuminate\Support\Facades\Http;
@@ -91,6 +92,7 @@ class LoginController extends Controller
         // Get enforce_2fa_login setting from system_settings
         $enforce2FA = SystemSetting::get('enforce_2fa_login', 'false') === 'true';
         $unapprovedUserCount = User::where('is_approved', false)->count();
+        $unapprovedRequestCount = AccessRequest::where('status', 'pending')->count();
 
         $response = [
             'uuid' => $user->uuid,
@@ -116,6 +118,7 @@ class LoginController extends Controller
                 'total_users'    => User::count(),
                 'total_domains'  => Domain::count(),
                 'un_approved_user_count' => $unapprovedUserCount,
+                'un_approved_request_count' => $unapprovedRequestCount,
             ];
         }
 

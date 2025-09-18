@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncPagePermissionJob;
+use App\Models\AccessRequest;
 use App\Models\Domain;
 use App\Models\User;
+
 use Illuminate\Http\JsonResponse;
 
 class AccessAdminController extends Controller
@@ -22,6 +24,12 @@ class AccessAdminController extends Controller
             }
         }
 
+        // Update access request status to approved if any pending request exists
+        AccessRequest::where('user_uuid', $user->uuid)
+            ->where('domain_id', $domain->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'approved']);
+
         // Dispatch job for solucomp domains
         $this->dispatchPagePermissionJob($user, $domain, 'assign');
 
@@ -32,6 +40,12 @@ class AccessAdminController extends Controller
     public function revoke(User $user, Domain $domain): JsonResponse
     {
         $user->domains()->detach($domain->id);
+
+        // Update access request status to rejected if any pending request exists
+        AccessRequest::where('user_uuid', $user->uuid)
+            ->where('domain_id', $domain->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'rejected']);
 
         // Dispatch job for solucomp domains
         $this->dispatchPagePermissionJob($user, $domain, 'revoke');
