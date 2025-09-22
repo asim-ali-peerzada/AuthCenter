@@ -24,14 +24,13 @@ class UserAdminController extends Controller
     // GET Users
     public function index(): JsonResponse
     {
-        log::info('HIT...................................');
         $users = User::with('domains:id,name,url')
             ->where('role', '!=', 'admin')
+            ->where('is_approved', true)
             ->where(function ($query) {
-                $query->where('user_origin', 'jobfinder')
+                $query->where('user_origin', '<>', 'jobfinder')
                       ->orWhere('external_role', 'Admin');
             })
-            ->where('is_approved', true)
             ->orderBy('first_name', 'asc')
             ->get();
 
@@ -56,7 +55,7 @@ class UserAdminController extends Controller
                     'name' => $domain->name,
                     'url' => $domain->url,
                 ];
-            });
+            })->toArray();
 
             return array_merge($user->toArray(), ['domains' => $domains]);
         })->toArray();
@@ -233,9 +232,15 @@ class UserAdminController extends Controller
                 $q->where('is_approved', true);
             })
             ->where('role', '!=', 'admin')
-            ->where(function ($query) {
-                $query->where('user_origin', 'jobfinder')
-                      ->orWhere('external_role', 'Admin');
+            ->where(function ($q) {
+                // Exclude users whose user_origin is 'jobfinder', except if external_role is 'Admin'
+                $q->where(function ($subQ) {
+                    $subQ->where('user_origin', '<>', 'jobfinder')
+                        ->orWhere(function ($subSubQ) {
+                            $subSubQ->where('user_origin', 'jobfinder')
+                                    ->where('external_role', 'Admin');
+                        });
+                });
             })
             ->with('domains:id,name,url');
         // Apply search if query parameter exists
@@ -299,7 +304,6 @@ class UserAdminController extends Controller
             $status = null;
         }
 
-
         if ($domain && $domain !== 'all') {
             $query->whereHas('domains', function ($q) use ($domain) {
                 $q->where('key', $domain);
@@ -322,12 +326,18 @@ class UserAdminController extends Controller
             $query->where($roleColumn, $searchValue);
         } else {
             $query->where('role', '!=', 'admin');
-            $query->where(function ($query) {
-                $query->where('user_origin', 'jobfinder')
-                      ->orWhere('external_role', 'Admin');
-            });
         }
-        $users = $query->orderBy('created_at', 'desc')->get();
+
+        // Exclude users whose user_origin is 'jobfinder', except those whose external_role is 'Admin'
+        $query->where(function ($q) {
+            $q->where('user_origin', '<>', 'jobfinder')
+              ->orWhere(function ($q2) {
+                  $q2->where('user_origin', 'jobfinder')
+                     ->where('external_role', 'Admin');
+              });
+        });
+
+        $users = $query->orderBy('first_name', 'asc')->get();
 
         $transformedUsers = $this->transformUsers($users);
 

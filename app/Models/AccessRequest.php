@@ -17,12 +17,15 @@ class AccessRequest extends Model
         'request_type',
         'status',
         'message',
+        'deactivate_info',
+        'external_active_status',
         'acted_by',
         'acted_at',
     ];
 
     protected $casts = [
         'acted_at' => 'datetime',
+        'deactivate_info' => 'array',
     ];
 
     /**

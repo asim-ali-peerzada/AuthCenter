@@ -40,6 +40,7 @@ class User extends Authenticatable
         'user_origin',
         'role',
         'external_role',
+        'external_active_status',
         'image_url',
         'failed_attempts',
         'locked_until',
@@ -52,6 +53,7 @@ class User extends Authenticatable
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
         'locked_until' => 'datetime',
+        'external_active_status' => 'array',
     ];
 
     protected $appends = ['image_url_full'];
@@ -107,7 +109,7 @@ class User extends Authenticatable
     {
         return $this->hasMany(UserActivity::class);
     }
-    
+
     /**
      * Check if the user has an admin role.
      *

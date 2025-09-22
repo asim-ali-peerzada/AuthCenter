@@ -85,4 +85,11 @@ return [
         'shared_token' => env('SSO_SHARED_TOKEN'),
     ],
 
+    'deactivate_domain' => [
+        'ccms' => env('CCMS_DEACTIVATE_INFO'),
+        'jobfinder' => env('JOB_FINDER_DEACTIVATE_INFO'),
+    ],
+
+
+
 ];

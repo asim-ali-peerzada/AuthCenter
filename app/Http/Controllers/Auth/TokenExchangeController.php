@@ -79,7 +79,7 @@ class TokenExchangeController extends Controller
                     'first_name'  => $user->first_name,
                     'last_name'  => $user->last_name,
                     'email' => $user->email,
-                    'roles' => $user->role,
+                    'roles' => $user->external_role,
                     'password' => $user->password,
                 ]
             ]);

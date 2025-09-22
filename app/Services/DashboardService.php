@@ -35,7 +35,7 @@ class DashboardService
 
         // Base counts
         $totalUsers = User::where('role', '!=', 'admin')->count();
-        $totalDomains = Domain::count();
+        $totalDomains = Domain::where('key', '!=', 'solucomp')->count();
         $totalSessions24h = DB::table('sessions')
             ->where('last_activity', '>=', Carbon::now()->subDay()->timestamp)
             ->distinct('id')
@@ -52,8 +52,8 @@ class DashboardService
             ->whereBetween('created_at', [$startOfCurrentMonth, $now])
             ->count();
 
-        $previousDomains = Domain::whereBetween('created_at', [$startOfPreviousMonth, $endOfPreviousMonth])->count();
-        $currentDomains = Domain::whereBetween('created_at', [$startOfCurrentMonth, $now])->count();
+        $previousDomains = Domain::where('key', '!=', 'solucomp')->whereBetween('created_at', [$startOfPreviousMonth, $endOfPreviousMonth])->count();
+        $currentDomains = Domain::where('key', '!=', 'solucomp')->whereBetween('created_at', [$startOfCurrentMonth, $now])->count();
 
         // 24-hour session growth
         $startOfPrevious24h = $now->copy()->subDays(2);
@@ -70,7 +70,6 @@ class DashboardService
         return [
             'ccms' => $ccmsSummary,
             'job_finder' => $jobFinderSummary,
-            'solucomp' => $solucompSummary,
             'samsung' => $samsungSummary,
             'total_users' => $totalUsers,
             'total_domains' => $totalDomains,

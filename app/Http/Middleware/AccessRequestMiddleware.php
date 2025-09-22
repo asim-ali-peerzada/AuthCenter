@@ -152,8 +152,11 @@ class AccessRequestMiddleware
         $accessRequestId = $request->route('accessRequestId');
         $accessRequest = AccessRequest::findOrFail($accessRequestId);
 
+        // Check if enable_user_activation parameter is passed
+        $enableUserActivation = $request->input('enable_user_activation', false);
+
         // Check if request is still pending
-        if ($accessRequest->status !== 'pending') {
+        if ($accessRequest->status !== 'pending' && !$enableUserActivation) {
             return response()->json([
                 'message' => 'This request has already been processed',
                 'current_status' => $accessRequest->status

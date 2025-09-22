@@ -149,6 +149,9 @@ Route::prefix('admin')
         Route::post('/access-requests/{accessRequestId}/reject', [AccessRequestController::class, 'reject'])
             ->middleware('access.request:manage')
             ->name('access-requests.reject');
+        Route::patch('/access-requests/{accessRequestId}/external-status', [AccessRequestController::class, 'updateExternalStatus'])
+            ->middleware('access.request:manage')
+            ->name('access-requests.update-external-status');
     });
 
 // Internal sync endpoint & token refresh
@@ -158,4 +161,5 @@ Route::post('/token/refresh', [RefreshTokenController::class, 'refresh']);
 // Routes for external services to fetch data
 Route::middleware('auth.sync.secret')->group(function () {
     Route::get('/external_small_cell', [ExternalDataController::class, 'getSiteData'])->name('external.site-names');
+    Route::post('/user-activation-status', [AccessRequestController::class, 'updateUserActivationStatus'])->name('webhook.user-activation-status');
 });

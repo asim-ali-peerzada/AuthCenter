@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\AccessRequest;
 
 use App\Http\Requests\AccessRequest\AccessRequestStoreRequest;
+use App\Jobs\ProcessUserActivationJob;
 use App\Models\AccessRequest;
 use App\Models\Domain;
 use App\Models\User;
@@ -11,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessActivationRequestJob;
 
 class AccessRequestController extends Controller
 {
@@ -236,6 +238,18 @@ class AccessRequestController extends Controller
             ], 409);
         }
 
+        // Check if user is already active in the external domain
+        $user = User::where('uuid', $userUuid)->first();
+        $domainKey = $domain->key;
+
+        if ($user && isset($user->external_active_status[$domainKey]) && $user->external_active_status[$domainKey] === 'active') {
+            return response()->json([
+                'message' => 'You are already active in that domain!',
+                'external_status' => $user->external_active_status[$domainKey],
+                'domain_key' => $domainKey
+            ], 409);
+        }
+
         // Check for rate limiting (max 10 pending requests per user)
         $pendingCount = AccessRequest::where('user_uuid', $userUuid)
             ->where('status', 'pending')
@@ -253,8 +267,14 @@ class AccessRequestController extends Controller
                 'domain_name' => $domain->name ?? ($validated['domain_name'] ?? null),
                 'request_type' => 'activation', // Always 'activation' for this endpoint
                 'message' => $validated['message'] ?? null,
-                'status' => 'pending',
+                'status' => 'approved',
             ]);
+
+            // Check if user is already assigned to domain and request_type is activation
+            if ($authUser->domains()->where('domain_id', $validated['domain_id'])->exists() && $requestModel->request_type === 'activation') {
+                // Dispatch user activation job for sub domains
+                ProcessActivationRequestJob::dispatch($requestModel);
+            }
 
             return response()->json([
                 'message' => 'Activation request submitted successfully',
@@ -291,7 +311,10 @@ class AccessRequestController extends Controller
         // Use policy to authorize
         Gate::authorize('approve', $accessRequest);
 
-        if ($accessRequest->status !== 'pending') {
+        // Check if enable_user_activation parameter is passed
+        $enableUserActivation = $request->input('enable_user_activation', false);
+
+        if ($accessRequest->status !== 'pending' && !$enableUserActivation) {
             return response()->json([
                 'message' => 'Request already processed',
                 'current_status' => $accessRequest->status
@@ -319,6 +342,23 @@ class AccessRequestController extends Controller
                         }
                     }
                 }
+            }
+
+            // If enable_user_activation is true and request_type is activation, dispatch job
+            if ($enableUserActivation && $accessRequest->request_type === 'activation') {
+                $user = User::where('uuid', $accessRequest->user_uuid)->first();
+                $domainKey = $accessRequest->domain->key;
+
+                // Check if user is already active in external domain
+                if ($user && isset($user->external_active_status[$domainKey]) && $user->external_active_status[$domainKey] === 'active') {
+                    return response()->json([
+                        'message' => 'You are already active in that domain!',
+                        'external_status' => $user->external_active_status[$domainKey],
+                        'domain_key' => $domainKey
+                    ], 409);
+                }
+
+                ProcessUserActivationJob::dispatch($accessRequest);
             }
 
             return response()->json([
@@ -449,5 +489,81 @@ class AccessRequestController extends Controller
 
             return response()->json(['message' => 'Failed to resubmit request'], 500);
         }
+    }
+
+    /**
+     * Update external active status when user is deactivated
+     */
+    public function updateExternalStatus(Request $request, $accessRequestId)
+    {
+        $accessRequest = AccessRequest::find($accessRequestId);
+
+        if (!$accessRequest) {
+            return response()->json(['message' => 'Access request not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'external_active_status' => 'required|string|in:active,inactive'
+        ]);
+
+        $accessRequest->update([
+            'external_active_status' => $validated['external_active_status']
+        ]);
+
+        return response()->json([
+            'message' => 'External status updated successfully',
+            'request' => $accessRequest->load(['user', 'domain'])
+        ]);
+    }
+
+    /**
+     * API endpoint for sub-domains to update user activation status via job
+     */
+    public function updateUserActivationStatus(Request $request)
+    {
+        $validated = $request->validate([
+            'user_uuid' => 'required|string',
+            'domain_key' => 'required|string',
+            'status' => 'required|string|in:active,inactive'
+        ]);
+
+        // Find the domain by key
+        $domain = Domain::where('key', $validated['domain_key'])->first();
+
+        if (!$domain) {
+            Log::warning('Domain not found for user activation status update', [
+                'user_uuid' => $validated['user_uuid'],
+                'domain_key' => $validated['domain_key'],
+                'status' => $validated['status']
+            ]);
+            return response()->json(['message' => 'Domain not found'], 404);
+        }
+
+        // Find the user
+        $user = User::where('uuid', $validated['user_uuid'])->first();
+
+        if (!$user) {
+            Log::warning('User not found for activation status update', [
+                'user_uuid' => $validated['user_uuid'],
+                'domain_key' => $validated['domain_key'],
+                'status' => $validated['status']
+            ]);
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        // Update the user's external active status for this domain
+        $externalStatus = $user->external_active_status ?? [];
+        $externalStatus[$validated['domain_key']] = $validated['status'];
+
+        $user->update([
+            'external_active_status' => $externalStatus
+        ]);
+
+        return response()->json([
+            'message' => 'User activation status updated successfully',
+            'user_uuid' => $validated['user_uuid'],
+            'domain_key' => $validated['domain_key'],
+            'status' => $validated['status']
+        ]);
     }
 }
