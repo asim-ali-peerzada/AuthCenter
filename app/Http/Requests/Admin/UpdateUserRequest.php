@@ -22,7 +22,7 @@ class UpdateUserRequest extends FormRequest
      */
     public function rules(): array
     {
-         $userUuid = $this->route('user');
+        $userUuid = $this->route('user');
 
         return [
             'first_name' => 'sometimes|required|string|max:100',
@@ -31,10 +31,12 @@ class UpdateUserRequest extends FormRequest
                 'sometimes',
                 'required',
                 'email:rfc,dns',
-                 Rule::unique('users', 'email')->ignore($userUuid, 'uuid'),
+                Rule::unique('users', 'email')->ignore($userUuid, 'uuid'),
             ],
             'role'   => 'sometimes|required|in:user,admin',
             'status' => 'sometimes|required|in:active,inactive',
+            'user_origin' => 'sometimes|nullable|in:ccms,jobfinder,solucomp,authcenter,site_access_info',
+            'image' => 'sometimes|nullable|image|mimes:jpeg,png,jpg,gif,svg|max:5120', // Increased to 5MB
         ];
     }
 }

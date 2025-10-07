@@ -22,7 +22,15 @@ class IsAdmin
     {
         $user = Auth::user();
 
-        if (! $user || $user->role !== 'admin') {
+        if (! $user) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        // Check if user is admin through role OR through site_access_info origin with Admin external_role
+        $isAdmin = $user->role === 'admin' ||
+            ($user->user_origin === 'site_access_info' && $user->external_role === 'Admin');
+
+        if (! $isAdmin) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 

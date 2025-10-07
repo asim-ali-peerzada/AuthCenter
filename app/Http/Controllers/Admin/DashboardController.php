@@ -16,4 +16,9 @@ class DashboardController extends Controller
     {
         return response()->json($this->dashboardService->getSummary());
     }
+
+    public function site_access_dashboard(): JsonResponse
+    {
+        return response()->json($this->dashboardService->getDashboardData());
+    }
 }

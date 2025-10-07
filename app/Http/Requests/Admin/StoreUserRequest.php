@@ -38,6 +38,7 @@ class StoreUserRequest extends FormRequest
             'status' => 'nullable|in:active,inactive',
             'is_approved' => 'nullable|boolean',
             'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'user_origin' => 'nullable|in:ccms,jobfinder,solucomp,authcenter,site_access_info',
         ];
     }
 }

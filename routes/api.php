@@ -18,6 +18,7 @@ use App\Http\Controllers\Export\ExportController;
 use App\Http\Controllers\Admin\UserApprovalController;
 use App\Http\Controllers\External\ExternalDataController;
 use App\Http\Controllers\Auth\TwoFactorAuthController;
+use App\Http\Controllers\Auth\OAuth2Controller;
 use App\Http\Controllers\upload\SiteUploadController;
 use App\Http\Controllers\AccessRequest\AccessRequestController;
 use App\Http\Controllers\DomainStatus\DomainStatusController;
@@ -55,22 +56,7 @@ Route::prefix('auth')->group(function () {
         // Logout: revoke JWT immediately (blacklist JTI)
         Route::post('logout', [LogoutController::class, 'logout']);
 
-        Route::get('validate', function (Request $request) {
-            $user = $request->user();
-
-            return response()->json([
-                'user' => [
-                    'uuid'   => $user->uuid,
-                    'email'  => $user->email,
-                    'full_name'   => $user->first_name,
-                    'last_name'   => $user->last_name,
-                    'status' => $user->status,
-                    'image_full_url' => $user->image_url
-                        ? asset('storage/' . $user->image_url)
-                        : null,
-                ]
-            ]);
-        });
+        Route::get('validate', [LoginController::class, 'validate']);
 
         // Access Request for user
         Route::post('/access-requests', [AccessRequestController::class, 'store'])
@@ -95,7 +81,7 @@ Route::prefix('auth')->group(function () {
 });
 
 Route::prefix('admin')
-    ->middleware(['auth:jwt', 'jwt.blacklist', 'is.admin'])
+    ->middleware(['auth:jwt', 'jwt.blacklist', 'debug.auth', 'is.admin'])
     ->group(function () {
 
         // ── Users ───────────────────────────
@@ -103,6 +89,7 @@ Route::prefix('admin')
         Route::get('users/{uuid}',              [UserAdminController::class, 'show']);
         Route::post('users',             [UserAdminController::class, 'store']);
         Route::put('users/{user}',       [UserAdminController::class, 'update']);
+        Route::post('users/{user}/image', [UserAdminController::class, 'updateImage']);
         Route::patch('users/status', [UserAdminController::class, 'toggleStatus']);
         Route::delete('users/{user}', [UserAdminController::class, 'destroy']);
         Route::post('users/{user}/reset-password', [UserAdminController::class, 'resetPassword']);
@@ -111,6 +98,7 @@ Route::prefix('admin')
         Route::get('filtered/users/', [UserAdminController::class, 'filtered']);
         Route::post('unlock/users/', [UserAdminController::class, 'unlockUser']);
         Route::get('dashboard-summary', [DashboardController::class, 'summary']);
+        Route::get('dashboard', [DashboardController::class, 'site_access_dashboard']);
         Route::get('/user-activities', [UserActivityController::class, 'index']);
         Route::get('/export-summary-activities', [ExportController::class, 'exportSummaryWithActivities']);
 
@@ -140,6 +128,12 @@ Route::prefix('admin')
         // File processing status polling endpoint
         Route::get('sites/files/{fileId}/status', [SiteUploadController::class, 'getFileStatus']);
 
+        // Get all uploaded files
+        Route::get('sites/files', [SiteUploadController::class, 'getUploadedFiles']);
+
+        // Delete uploaded file
+        Route::delete('sites/files/{fileId}', [SiteUploadController::class, 'deleteFile']);
+
         // Access Request for Admin
         Route::get('/access-requests/search', [AccessRequestController::class, 'search'])
             ->name('admin.access-requests.search');
@@ -154,8 +148,14 @@ Route::prefix('admin')
             ->name('access-requests.update-external-status');
     });
 
+Route::post('/oauth/token', [OAuth2Controller::class, 'token'])->name('oauth.token');
+
+// OAuth2 token validation for external projects
+Route::get('/oauth/validate', [OAuth2Controller::class, 'validate'])->name('oauth.validate');
+
 // Internal sync endpoint & token refresh
 Route::post('/internal-sync-user', [InternalSyncController::class, 'store']);
+// Token refresh
 Route::post('/token/refresh', [RefreshTokenController::class, 'refresh']);
 
 // Routes for external services to fetch data

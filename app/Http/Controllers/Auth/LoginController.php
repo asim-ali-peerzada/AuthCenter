@@ -225,6 +225,27 @@ class LoginController extends Controller
 
 
     /**
+     * Validate user token and return user information
+     */
+    public function validate(Request $request)
+    {
+        $user = $request->user();
+
+        return response()->json([
+            'user' => [
+                'uuid'   => $user->uuid,
+                'email'  => $user->email,
+                'full_name'   => $user->first_name,
+                'last_name'   => $user->last_name,
+                'status' => $user->status,
+                'image_full_url' => $user->image_url
+                    ? asset('storage/app/public/' . $user->image_url)
+                    : null,
+            ]
+        ]);
+    }
+
+    /**
      * Verify the Google reCAPTCHA token.
      */
     private function verifyRecaptcha(string $token): array

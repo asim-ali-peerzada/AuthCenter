@@ -22,6 +22,7 @@ class CheckJwtBlacklist
         $token = $request->bearerToken();
 
         if (!$token) {
+            Log::warning('JWT Blacklist middleware: No token provided');
             return response()->json(['message' => 'Token missing'], 401);
         }
 

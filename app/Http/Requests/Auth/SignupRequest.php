@@ -22,11 +22,26 @@ class SignupRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'first_name'=> 'required|string|max:100',
-            'last_name'     => 'required|string|max:100',
-            'key'     => 'required|string|max:20',
-            'email'    => 'required|email:rfc,dns|unique:users,email',
-            'password' => 'required|string|min:8|max:64',
+            'first_name'=> 'required|string|max:100|regex:/^[a-zA-Z0-9\s\-_.]+$/i',
+            'last_name' => 'required|string|max:100|regex:/^[a-zA-Z0-9\s\-_.]+$/i',
+            'key'       => 'required|string|max:20|alpha_dash',
+            'email'     => 'required|email:rfc,dns|unique:users,email',
+            'password'  => 'required|string|min:8|max:64',
         ];
+    }
+    
+    /**
+     * Prepare the data for validation.
+     *
+     * @return void
+     */
+    protected function prepareForValidation()
+    {
+        $this->merge([
+            'first_name' => strip_tags($this->first_name),
+            'last_name'  => strip_tags($this->last_name),
+            'key'        => strip_tags($this->key),
+            'email'      => filter_var($this->email, FILTER_SANITIZE_EMAIL),
+        ]);
     }
 }

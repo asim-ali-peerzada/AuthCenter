@@ -338,36 +338,234 @@ class SiteUploadController extends Controller
     }
 
     /**
+     * Get all uploaded files with their status and details.
+     */
+    public function getUploadedFiles(Request $request): JsonResponse
+    {
+        try {
+            $perPage = $request->query('per_page', 10);
+            $page = $request->query('page', 1);
+
+            $query = SiteAccessFile::orderBy('uploaded_at', 'desc')
+                ->select([
+                    'id',
+                    'file_type',
+                    'original_file_name',
+                    'uploaded_at',
+                    'processed',
+                    'status',
+                    'total_records',
+                    'processed_records',
+                    'failed_records',
+                    'completed_at'
+                ]);
+
+            $paginatedFiles = $query->paginate($perPage, ['*'], 'page', $page);
+
+            $files = $paginatedFiles->getCollection()->map(function ($file) {
+                return [
+                    'id' => $file->id,
+                    'name' => $file->original_file_name,
+                    'type' => ucfirst($file->file_type),
+                    'size' => $this->formatFileSize($file),
+                    'status' => $this->getDisplayStatus($file),
+                    'uploadDate' => $this->formatUploadDate($file->uploaded_at),
+                    'progress' => [
+                        'total_records' => $file->total_records ?? 0,
+                        'processed_records' => $file->processed_records ?? 0,
+                        'failed_records' => $file->failed_records ?? 0,
+                        'percentage' => $this->calculateProgressPercentage($file),
+                    ],
+                    'completed_at' => $this->formatDateTime($file->completed_at),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $files,
+                'pagination' => [
+                    'current_page' => $paginatedFiles->currentPage(),
+                    'last_page' => $paginatedFiles->lastPage(),
+                    'per_page' => $paginatedFiles->perPage(),
+                    'total' => $paginatedFiles->total(),
+                    'from' => $paginatedFiles->firstItem(),
+                    'to' => $paginatedFiles->lastItem(),
+                    'has_more_pages' => $paginatedFiles->hasMorePages(),
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch uploaded files.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Get polling recommendations based on current status.
      */
     private function getPollingRecommendations(string $status): array
     {
-        return match ($status) {
-            'pending' => [
-                'should_continue' => true,
-                'recommended_interval_ms' => 2000, // 2 seconds
-                'max_wait_time_ms' => 300000, // 5 minutes
-            ],
-            'processing' => [
-                'should_continue' => true,
-                'recommended_interval_ms' => 3000, // 3 seconds
-                'max_wait_time_ms' => 1800000, // 30 minutes
-            ],
-            'completed' => [
-                'should_continue' => false,
-                'recommended_interval_ms' => null,
-                'max_wait_time_ms' => null,
-            ],
-            'failed' => [
-                'should_continue' => false,
-                'recommended_interval_ms' => null,
-                'max_wait_time_ms' => null,
-            ],
-            default => [
-                'should_continue' => true,
-                'recommended_interval_ms' => 5000, // 5 seconds
-                'max_wait_time_ms' => 600000, // 10 minutes
-            ],
-        };
+        switch ($status) {
+            case 'pending':
+                return [
+                    'should_continue' => true,
+                    'recommended_interval_ms' => 2000, // 2 seconds
+                    'max_wait_time_ms' => 300000, // 5 minutes
+                ];
+            case 'processing':
+                return [
+                    'should_continue' => true,
+                    'recommended_interval_ms' => 3000, // 3 seconds
+                    'max_wait_time_ms' => 1800000, // 30 minutes
+                ];
+            case 'completed':
+                return [
+                    'should_continue' => false,
+                    'recommended_interval_ms' => null,
+                    'max_wait_time_ms' => null,
+                ];
+            case 'failed':
+                return [
+                    'should_continue' => false,
+                    'recommended_interval_ms' => null,
+                    'max_wait_time_ms' => null,
+                ];
+            default:
+                return [
+                    'should_continue' => true,
+                    'recommended_interval_ms' => 5000, // 5 seconds
+                    'max_wait_time_ms' => 600000, // 10 minutes
+                ];
+        }
+    }
+
+    /**
+     * Format file size for display.
+     */
+    private function formatFileSize(SiteAccessFile $file): string
+    {
+        // Since we don't store file size in the database, we'll estimate based on records
+        $estimatedSize = ($file->total_records ?? 0) * 0.5; // Rough estimate: 0.5KB per record
+        return $this->formatBytes($estimatedSize * 1024); // Convert to bytes
+    }
+
+    /**
+     * Format bytes to human readable format.
+     */
+    private function formatBytes($bytes, $precision = 1): string
+    {
+        $units = ['B', 'KB', 'MB', 'GB'];
+
+        for ($i = 0; $bytes > 1024 && $i < count($units) - 1; $i++) {
+            $bytes /= 1024;
+        }
+
+        return round($bytes, $precision) . ' ' . $units[$i];
+    }
+
+    /**
+     * Get display status for the file.
+     */
+    private function getDisplayStatus(SiteAccessFile $file): string
+    {
+        if ($file->status === 'pending') {
+            return 'Processing';
+        }
+
+        if ($file->status === 'completed') {
+            return 'Completed';
+        }
+
+        if ($file->status === 'failed') {
+            return 'Failed';
+        }
+
+        return ucfirst($file->status);
+    }
+
+    /**
+     * Delete an uploaded file and all its related records.
+     */
+    public function deleteFile(Request $request, $fileId): JsonResponse
+    {
+        try {
+            $siteAccessFile = SiteAccessFile::findOrFail($fileId);
+
+            // Get file type for related records deletion
+            $fileType = $siteAccessFile->file_type;
+            $fileName = $siteAccessFile->original_file_name;
+
+            // Delete related records based on file type
+            if ($fileType === 'hub') {
+                // Delete related Hub records
+                Hub::where('id', $fileId)->delete();
+            } else {
+                // Delete related Site records
+                Site::where('id', $fileId)->delete();
+            }
+
+            // Delete the file record itself
+            $siteAccessFile->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'File and all related records deleted successfully.',
+                'data' => [
+                    'deleted_file' => $fileName,
+                    'file_type' => $fileType,
+                    'deleted_at' => now()->toISOString(),
+                ],
+            ], 200);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'File not found.',
+                'error_code' => 'FILE_NOT_FOUND',
+            ], 404);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete file.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Format upload date for display.
+     */
+    private function formatUploadDate($uploadedAt): string
+    {
+        if (!$uploadedAt) {
+            return 'Unknown';
+        }
+
+        $date = $uploadedAt instanceof \Carbon\Carbon ? $uploadedAt : \Carbon\Carbon::parse($uploadedAt);
+        $now = now();
+
+        $diffInMinutes = $date->diffInMinutes($now);
+        $diffInHours = $date->diffInHours($now);
+        $diffInDays = $date->diffInDays($now);
+
+        if ($diffInMinutes < 1) {
+            return 'Just now';
+        } elseif ($diffInMinutes < 60) {
+            return $diffInMinutes . ' minute' . ($diffInMinutes > 1 ? 's' : '') . ' ago';
+        } elseif ($diffInHours < 24) {
+            return $diffInHours . ' hour' . ($diffInHours > 1 ? 's' : '') . ' ago';
+        } elseif ($diffInDays < 7) {
+            return $diffInDays . ' day' . ($diffInDays > 1 ? 's' : '') . ' ago';
+        } elseif ($diffInDays < 30) {
+            $weeks = floor($diffInDays / 7);
+            return $weeks . ' week' . ($weeks > 1 ? 's' : '') . ' ago';
+        } elseif ($diffInDays < 365) {
+            $months = floor($diffInDays / 30);
+            return $months . ' month' . ($months > 1 ? 's' : '') . ' ago';
+        } else {
+            $years = floor($diffInDays / 365);
+            return $years . ' year' . ($years > 1 ? 's' : '') . ' ago';
+        }
     }
 }

@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'is.admin'  => \App\Http\Middleware\IsAdmin::class,
             'auth.sync.secret' => \App\Http\Middleware\VerifySyncSecret::class,
             'access.request' => \App\Http\Middleware\AccessRequestMiddleware::class,
+            'debug.auth' => \App\Http\Middleware\DebugAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

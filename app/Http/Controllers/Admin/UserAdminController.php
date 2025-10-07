@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use App\Http\Requests\Admin\ChangeUserPasswordRequest;
 use App\Jobs\SyncUserDeletionJob;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Jobs\SyncUserUpdateJob;
@@ -24,18 +25,35 @@ class UserAdminController extends Controller
     // GET Users
     public function index(): JsonResponse
     {
-        $users = User::with('domains:id,name,url')
-            ->where('role', '!=', 'admin')
+        $authUser = Auth::user();
+
+        // Build base query with optimized select and relationships
+        $query = User::with('domains:id,name,url')
             ->where('is_approved', true)
-            ->where(function ($query) {
-                $query->where('user_origin', '<>', 'jobfinder')
-                      ->orWhere('external_role', 'Admin');
-            })
-            ->orderBy('first_name', 'asc')
-            ->get();
+            ->where('id', '!=', $authUser->id) // Exclude authenticated user's own record
+            ->orderBy('first_name', 'asc');
 
+        // Check if authenticated user is site access info admin
+        if ($authUser->user_origin === 'site_access_info' && $authUser->external_role === 'Admin') {
+            // Site access info admin: only show site_access_info users
+            $query->where('user_origin', 'site_access_info');
+        } else {
+            // Traditional admin: exclude admin role and jobfinder users
+            $query->where('role', '!=', 'admin')
+                ->where(function ($subQuery) {
+                    $subQuery->where('user_origin', '<>', 'jobfinder')
+                        ->orWhere('external_role', 'Admin');
+                });
+        }
 
-        $transformedUsers = $this->transformUsers($users);
+        $users = $query->get();
+
+        // Sort users alphabetically by first_name (case-insensitive)
+        $sortedUsers = $users->sort(function ($a, $b) {
+            return strcasecmp($a->first_name, $b->first_name);
+        })->values();
+
+        $transformedUsers = $this->transformUsers($sortedUsers);
 
         return response()->json($transformedUsers);
     }
@@ -81,6 +99,21 @@ class UserAdminController extends Controller
             $payload['is_approved'] = true;
         }
 
+        // Handle user_origin if provided
+        if ($request->has('user_origin') && $request->user_origin) {
+            $payload['user_origin'] = $request->user_origin;
+        }
+
+        // Special handling for site_access_info users with Admin role
+        if (
+            $request->has('user_origin') && $request->user_origin === 'site_access_info' &&
+            $request->has('role') && $request->role === 'admin'
+        ) {
+            // Set external_role to Admin and role to User for site_access_info users
+            $payload['external_role'] = 'Admin';
+            $payload['role'] = 'user';
+        }
+
         $user = User::create($payload);
 
         return response()->json($user, 201);
@@ -91,7 +124,52 @@ class UserAdminController extends Controller
     {
         $user = User::where('uuid', $uuid)->firstOrFail();
 
-        $data = $request->validated();
+        // Initialize $data with basic user fields
+        $data = $request->only(['first_name', 'last_name', 'email']);
+
+        if ($request->hasFile('image')) {
+            $path = $request->file('image')->store('user_images', 'public');
+            $data['image_url'] = $path;
+        }
+
+        // Special handling for site_access_info users
+        if ($user->user_origin === 'site_access_info' && $request->has('role')) {
+            if ($request->role === 'admin') {
+                // Set external_role to Admin and role to User for site_access_info users
+                $data['external_role'] = 'Admin';
+                $data['role'] = 'user';
+            } elseif ($request->role === 'user') {
+                // Set external_role to User for site_access_info users
+                $data['external_role'] = 'User';
+            }
+        }
+
+        $user->update($data);
+
+        // Dispatch job to sync with other apps
+        SyncUserUpdateJob::dispatch($user->uuid);
+
+        return response()->json([
+            'message' => 'User updated successfully.',
+            'user' => $user,
+        ]);
+    }
+
+    // POST users image upload
+    public function updateImage(Request $request, string $uuid): JsonResponse
+    {
+
+        $user = User::where('uuid', $uuid)->firstOrFail();
+
+        // Validate image file
+        $request->validate([
+            'image' => 'required|image|mimes:jpeg,png,jpg,gif,svg|max:5120', // 5MB max
+            'first_name' => 'sometimes|string|max:100',
+            'last_name' => 'sometimes|string|max:100',
+            'email' => 'sometimes|email|max:255'
+        ]);
+
+        $data = $request->only(['first_name', 'last_name', 'email']);
 
         if ($request->hasFile('image')) {
             $path = $request->file('image')->store('user_images', 'public');
@@ -104,7 +182,7 @@ class UserAdminController extends Controller
         SyncUserUpdateJob::dispatch($user->uuid);
 
         return response()->json([
-            'message' => 'User updated successfully.',
+            'message' => 'User image updated successfully.',
             'user' => $user,
         ]);
     }
@@ -224,6 +302,7 @@ class UserAdminController extends Controller
         $query = $request->query('query');
         $status = $request->query('status');
         $pending = $request->query('pending');
+        $authUser = Auth::user();
 
         $usersQuery = User::query()
             ->when($pending === 'true', function ($q) {
@@ -231,18 +310,26 @@ class UserAdminController extends Controller
             }, function ($q) {
                 $q->where('is_approved', true);
             })
-            ->where('role', '!=', 'admin')
-            ->where(function ($q) {
-                // Exclude users whose user_origin is 'jobfinder', except if external_role is 'Admin'
-                $q->where(function ($subQ) {
-                    $subQ->where('user_origin', '<>', 'jobfinder')
-                        ->orWhere(function ($subSubQ) {
-                            $subSubQ->where('user_origin', 'jobfinder')
-                                    ->where('external_role', 'Admin');
-                        });
-                });
-            })
+            ->where('id', '!=', $authUser->id) // Exclude authenticated user's own record
             ->with('domains:id,name,url');
+
+        // Check if authenticated user is site access info admin
+        if ($authUser->user_origin === 'site_access_info' && $authUser->external_role === 'Admin') {
+            // Site access info admin: only show site_access_info users
+            $usersQuery->where('user_origin', 'site_access_info');
+        } else {
+            // Traditional admin: exclude admin role and jobfinder users
+            $usersQuery->where('role', '!=', 'admin')
+                ->where(function ($q) {
+                    $q->where(function ($subQ) {
+                        $subQ->where('user_origin', '<>', 'jobfinder')
+                            ->orWhere(function ($subSubQ) {
+                                $subSubQ->where('user_origin', 'jobfinder')
+                                    ->where('external_role', 'Admin');
+                            });
+                    });
+                });
+        }
         // Apply search if query parameter exists
         if ($query) {
             $usersQuery->where(function ($q) use ($query) {
@@ -293,7 +380,19 @@ class UserAdminController extends Controller
     // Users filtered
     public function filtered(Request $request)
     {
-        $query = User::query()->where('is_approved', true);
+        $authUser = Auth::user();
+        $query = User::query()
+            ->where('is_approved', true)
+            ->where('id', '!=', $authUser->id); // Exclude authenticated user's own record
+
+        // Check if authenticated user is site access info admin
+        if ($authUser->user_origin === 'site_access_info' && $authUser->external_role === 'Admin') {
+            // Site access info admin: only show site_access_info users
+            $query->where('user_origin', 'site_access_info');
+        } else {
+            // Traditional admin: exclude admin role
+            $query->where('role', '!=', 'admin');
+        }
 
         $domain = $request->input('domain');
         $status = $request->input('status');
@@ -331,10 +430,10 @@ class UserAdminController extends Controller
         // Exclude users whose user_origin is 'jobfinder', except those whose external_role is 'Admin'
         $query->where(function ($q) {
             $q->where('user_origin', '<>', 'jobfinder')
-              ->orWhere(function ($q2) {
-                  $q2->where('user_origin', 'jobfinder')
-                     ->where('external_role', 'Admin');
-              });
+                ->orWhere(function ($q2) {
+                    $q2->where('user_origin', 'jobfinder')
+                        ->where('external_role', 'Admin');
+                });
         });
 
         $users = $query->orderBy('first_name', 'asc')->get();
