@@ -3,10 +3,11 @@
 namespace App\Services;
 
 use App\Models\User;
-use App\Models\Domain;
 use App\Models\UserActivity;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use GuzzleHttp\Promise;
 
 class DashboardService
 {
@@ -17,88 +18,115 @@ class DashboardService
         protected SolucompApiService $solucompApiService,
         protected SamsungApiService $samsungApiService,
     ) {}
-    // Auth Center Dashboard Data
+
+    /**
+     * Auth Center Dashboard Data
+     */
     public function getSummary(): array
     {
-        $ccmsSummary =  $this->ccmsApiService->fetchSummary();
+        $cacheKey = 'dashboard:summary:v1';
+        $ttl = now()->addMinutes(5);
 
-        $jobFinderSummary =  $this->jobFinderApiService->fetchSummary();
+        return Cache::remember($cacheKey, $ttl, function () {
+            $apiPromises = [
+                'ccms' => $this->ccmsApiService->fetchSummary(),
+                'job_finder' => $this->jobFinderApiService->fetchSummary(),
+                'solucomp' => $this->solucompApiService->fetchSummary(),
+                'samsung' => $this->samsungApiService->fetchSummary(),
+            ];
 
-        $solucompSummary =  $this->solucompApiService->fetchSummary();
+            // Wait for all API calls to complete and settle the results
+            $apiResults = Promise\Utils::settle($apiPromises)->wait();
+            $summaries = [
+                'ccms' => $apiResults['ccms']['value'] ?? [],
+                'job_finder' => $apiResults['job_finder']['value'] ?? [],
+                'solucomp' => $apiResults['solucomp']['value'] ?? [],
+                'samsung' => $apiResults['samsung']['value'] ?? [],
+            ];
 
-        $samsungSummary =  $this->samsungApiService->fetchSummary();
+            $now = Carbon::now();
+            $startOfCurrentMonth = $now->copy()->startOfMonth();
+            $startOfPreviousMonth = $now->copy()->subMonthNoOverflow()->startOfMonth();
+            $endOfPreviousMonth = $startOfCurrentMonth->copy()->subSecond();
+            $startOfCurrentDay = $now->copy()->startOfDay();
+            $startOfPreviousDay = $now->copy()->subDay()->startOfDay();
 
-        $now = Carbon::now();
-        $startOfCurrentMonth = $now->copy()->startOfMonth();
-        $startOfPreviousMonth = $now->copy()->subMonthNoOverflow()->startOfMonth();
-        $endOfPreviousMonth = $startOfCurrentMonth->copy()->subSecond();
+            // Consolidate multiple queries into a single, efficient query
+            $stats = DB::table('users')
+                ->selectRaw('
+                    COUNT(CASE WHEN role != "admin" THEN 1 END) as total_users,
+                    COUNT(CASE WHEN role = "admin" AND created_at BETWEEN ? AND ? THEN 1 END) as current_admins,
+                    COUNT(CASE WHEN role = "admin" AND created_at BETWEEN ? AND ? THEN 1 END) as previous_admins,
+                    COUNT(CASE WHEN role != "admin" AND created_at >= ? THEN 1 END) as current_month_users
+                ', [
+                    $startOfCurrentMonth, $now,
+                    $startOfPreviousMonth, $endOfPreviousMonth,
+                    $startOfCurrentMonth
+                ])
+                ->first();
 
-        // Base counts
-        $totalUsers = User::where('role', '!=', 'admin')->count();
-        $totalDomains = Domain::where('key', '!=', 'solucomp')->count();
-        $totalSessions24h = DB::table('sessions')
-            ->where('last_activity', '>=', Carbon::now()->subDay()->timestamp)
-            ->distinct('id')
-            ->count('id');
+            // Separate query for domains as it's a different table
+            $domainStats = DB::table('domains')
+            ->selectRaw('
+                COUNT(CASE WHEN `key` != "solucomp" THEN 1 END) as total_domains,
+                COUNT(CASE WHEN `key` != "solucomp" AND created_at BETWEEN ? AND ? THEN 1 END) as current_domains,
+                COUNT(CASE WHEN `key` != "solucomp" AND created_at BETWEEN ? AND ? THEN 1 END) as previous_domains
+            ', [
+                $startOfCurrentMonth, $now,
+                $startOfPreviousMonth, $endOfPreviousMonth
+            ])
+            ->first();
 
-        // Monthly comparisons
-        $previousUsers = User::where('role', '!=', 'admin')->where('created_at', '<', $startOfCurrentMonth)->count();
-        $currentUsers = $totalUsers;
+            // Consolidate session queries into one
+            $sessionStats = DB::table('sessions')
+                ->selectRaw('
+                    COUNT(CASE WHEN last_activity >= ? THEN 1 END) as total_sessions_24h,
+                    COUNT(CASE WHEN last_activity BETWEEN ? AND ? THEN 1 END) as current_sessions,
+                    COUNT(CASE WHEN last_activity BETWEEN ? AND ? THEN 1 END) as previous_sessions
+                ', [
+                    $startOfCurrentDay->timestamp,
+                    $startOfCurrentDay->timestamp, $now->timestamp,
+                    $startOfPreviousDay->timestamp, $startOfCurrentDay->timestamp
+                ])
+                ->first();
 
-        $previousAdmins = User::where('role', 'admin')
-            ->whereBetween('created_at', [$startOfPreviousMonth, $endOfPreviousMonth])
-            ->count();
-        $currentAdmins = User::where('role', 'admin')
-            ->whereBetween('created_at', [$startOfCurrentMonth, $now])
-            ->count();
+            // --- Assemble the final array (logic remains identical) ---
+            $totalUsers = $stats->total_users;
+            $previousUsers = $totalUsers - $stats->current_month_users;
 
-        $previousDomains = Domain::where('key', '!=', 'solucomp')->whereBetween('created_at', [$startOfPreviousMonth, $endOfPreviousMonth])->count();
-        $currentDomains = Domain::where('key', '!=', 'solucomp')->whereBetween('created_at', [$startOfCurrentMonth, $now])->count();
+            return [
+                'ccms' => $summaries['ccms'],
+                'job_finder' => $summaries['job_finder'],
+                'samsung' => $summaries['samsung'],
+                'total_users' => $totalUsers,
+                'total_domains' => $domainStats->total_domains,
+                'total_sessions_24h' => $sessionStats->total_sessions_24h,
 
-        // 24-hour session growth
-        $startOfPrevious24h = $now->copy()->subDays(2);
-        $endOfPrevious24h = $now->copy()->subDay();
+                'user_growth' => [
+                    'previous_month' => $previousUsers,
+                    'current_month' => $totalUsers,
+                    'growth_rate' => $this->calculateGrowthRate($previousUsers, $totalUsers),
+                ],
 
-        $previousSessions = DB::table('sessions')
-            ->whereBetween('last_activity', [$startOfPrevious24h->timestamp, $endOfPrevious24h->timestamp])
-            ->count();
+                'admin_growth' => [
+                    'previous_month' => $stats->previous_admins,
+                    'current_month' => $stats->current_admins,
+                    'growth_rate' => $this->calculateGrowthRate($stats->previous_admins, $stats->current_admins),
+                ],
 
-        $currentSessions = DB::table('sessions')
-            ->where('last_activity', '>=', $endOfPrevious24h->timestamp)
-            ->count();
+                'domain_growth' => [
+                    'previous_month' => $domainStats->previous_domains,
+                    'current_month' => $domainStats->current_domains,
+                    'growth_rate' => $this->calculateGrowthRate($domainStats->previous_domains, $domainStats->current_domains),
+                ],
 
-        return [
-            'ccms' => $ccmsSummary,
-            'job_finder' => $jobFinderSummary,
-            'samsung' => $samsungSummary,
-            'total_users' => $totalUsers,
-            'total_domains' => $totalDomains,
-            'total_sessions_24h' => $totalSessions24h,
-
-            'user_growth' => [
-                'previous_month' => $previousUsers,
-                'current_month' => $currentUsers,
-                'growth_rate' => $this->calculateGrowthRate($previousUsers, $currentUsers),
-            ],
-
-            'admin_growth' => [
-                'previous_month' => $previousAdmins,
-                'current_month' => $currentAdmins,
-                'growth_rate' => $this->calculateGrowthRate($previousAdmins, $currentAdmins),
-            ],
-
-            'domain_growth' => [
-                'previous_month' => $previousDomains,
-                'current_month' => $currentDomains,
-                'growth_rate' => $this->calculateGrowthRate($previousDomains, $currentDomains),
-            ],
-
-            'session_growth' => [
-                'previous_month' => $previousSessions,
-                'current_month' => $currentSessions,
-                'growth_rate' => $this->calculateGrowthRate($previousSessions, $currentSessions),
-            ],
-        ];
+                'session_growth' => [
+                    'previous_month' => $sessionStats->previous_sessions,
+                    'current_month' => $sessionStats->current_sessions,
+                    'growth_rate' => $this->calculateGrowthRate($sessionStats->previous_sessions, $sessionStats->current_sessions),
+                ],
+            ];
+        });
     }
 
     // Site Access Info Dashboard Data

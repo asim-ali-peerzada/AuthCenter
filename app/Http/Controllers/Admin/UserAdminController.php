@@ -22,23 +22,21 @@ use Illuminate\Database\Eloquent\Collection;
 
 class UserAdminController extends Controller
 {
-    // GET Users
-    public function index(): JsonResponse
+    /**
+     * GET Users (Production-Ready with Pagination)
+     */
+    public function index(Request $request): JsonResponse
     {
         $authUser = Auth::user();
+        $perPage = $request->get('per_page', 15); // Allow per_page customization, default to 15
 
-        // Build base query with optimized select and relationships
         $query = User::with('domains:id,name,url')
             ->where('is_approved', true)
-            ->where('id', '!=', $authUser->id) // Exclude authenticated user's own record
-            ->orderBy('first_name', 'asc');
+            ->where('id', '!=', $authUser->id);
 
-        // Check if authenticated user is site access info admin
         if ($authUser->user_origin === 'site_access_info' && $authUser->external_role === 'Admin') {
-            // Site access info admin: only show site_access_info users
             $query->where('user_origin', 'site_access_info');
         } else {
-            // Traditional admin: exclude admin role and jobfinder users
             $query->where('role', '!=', 'admin')
                 ->where(function ($subQuery) {
                     $subQuery->where('user_origin', '<>', 'jobfinder')
@@ -46,37 +44,35 @@ class UserAdminController extends Controller
                 });
         }
 
-        $users = $query->get();
+        $paginatedUsers = $query->orderBy('first_name', 'asc')->paginate($perPage);
 
-        // Sort users alphabetically by first_name (case-insensitive)
-        $sortedUsers = $users->sort(function ($a, $b) {
+        $sortedItems = $paginatedUsers->getCollection()->sort(function ($a, $b) {
             return strcasecmp($a->first_name, $b->first_name);
         })->values();
 
-        $transformedUsers = $this->transformUsers($sortedUsers);
+        $paginatedUsers->setCollection($sortedItems);
 
-        return response()->json($transformedUsers);
+        return response()->json($paginatedUsers);
     }
 
     /**
-     * Transforms a collection of User models into a JSON-friendly array.
+     * Transforms a single User model into a JSON-friendly array.
+     * This is more efficient for use with paginator's `through()` method.
      *
-     * @param Collection $users
+     * @param User $user
      * @return array
      */
-    private function transformUsers(Collection $users): array
+    private function transformUser(User $user): array
     {
-        return $users->map(function (User $user) {
-            $domains = $user->domains->map(function (Domain $domain) {
-                return [
-                    'id' => $domain->id,
-                    'name' => $domain->name,
-                    'url' => $domain->url,
-                ];
-            })->toArray();
-
-            return array_merge($user->toArray(), ['domains' => $domains]);
+        $domains = $user->domains->map(function (Domain $domain) {
+            return [
+                'id' => $domain->id,
+                'name' => $domain->name,
+                'url' => $domain->url,
+            ];
         })->toArray();
+
+        return array_merge($user->toArray(), ['domains' => $domains]);
     }
 
     // GET User by UUID
@@ -381,6 +377,8 @@ class UserAdminController extends Controller
     public function filtered(Request $request)
     {
         $authUser = Auth::user();
+        $perPage = $request->get('per_page', 15);
+
         $query = User::query()
             ->where('is_approved', true)
             ->where('id', '!=', $authUser->id); // Exclude authenticated user's own record
@@ -436,11 +434,15 @@ class UserAdminController extends Controller
                 });
         });
 
-        $users = $query->orderBy('first_name', 'asc')->get();
+        $paginatedUsers = $query->orderBy('first_name', 'asc')->paginate($perPage);
 
-        $transformedUsers = $this->transformUsers($users);
+         $transformedItems = $paginatedUsers->getCollection()->map(function ($user) {
+            return $this->transformUser($user);
+        });
 
-        return response()->json($transformedUsers);
+        $paginatedUsers->setCollection($transformedItems);
+
+        return response()->json($paginatedUsers);
     }
 
     /**

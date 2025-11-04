@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Log;
 
 class AuthAttemptService
 {
-    public const MAX_ATTEMPTS = 3;
+    public const MAX_ATTEMPTS = 5;
 
     public function recordFailure(User $user): void
     {

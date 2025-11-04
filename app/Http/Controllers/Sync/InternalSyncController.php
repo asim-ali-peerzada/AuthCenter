@@ -35,7 +35,7 @@ class InternalSyncController extends Controller
                 'personal_email' => 'required|email',
                 'password'       => 'required|string',
                 'action'         => 'required|in:created,updated,activated,deactivated',
-                'user_origin'    => 'required|in:ccms,jobfinder,solucomp',
+                'user_origin'    => 'required|in:ccms,jobfinder,solucomp,ets',
             ]);
 
             $user = User::where('uuid', $data['uuid'])

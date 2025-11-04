@@ -22,6 +22,7 @@ use App\Http\Controllers\Auth\OAuth2Controller;
 use App\Http\Controllers\upload\SiteUploadController;
 use App\Http\Controllers\AccessRequest\AccessRequestController;
 use App\Http\Controllers\DomainStatus\DomainStatusController;
+use App\Http\Controllers\Ets\EtsUserController;
 
 Route::prefix('auth')->group(function () {
 
@@ -33,6 +34,12 @@ Route::prefix('auth')->group(function () {
     Route::post('login',  [LoginController::class,  'login']);
     Route::post('/login/verify-2fa', [LoginController::class, 'verify2FA']);
     Route::post('/generate-2fa-secret', [LoginController::class, 'generate2FASecret']);
+
+    // ETS integration endpoints (protected by ETS secret header)
+    Route::middleware('auth.ets.secret')->group(function () {
+        Route::post('users/status', [EtsUserController::class, 'status']);
+        Route::post('users/unlock', [EtsUserController::class, 'unlock']);
+    });
 
 
     /* JWT redemption (rate‑limited) */
@@ -81,7 +88,7 @@ Route::prefix('auth')->group(function () {
 });
 
 Route::prefix('admin')
-    ->middleware(['auth:jwt', 'jwt.blacklist', 'debug.auth', 'is.admin'])
+    ->middleware(['auth:jwt', 'jwt.blacklist', 'is.admin'])
     ->group(function () {
 
         // ── Users ───────────────────────────

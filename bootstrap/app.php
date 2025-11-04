@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'jwt.blacklist' => \App\Http\Middleware\CheckJwtBlacklist::class,
             'is.admin'  => \App\Http\Middleware\IsAdmin::class,
             'auth.sync.secret' => \App\Http\Middleware\VerifySyncSecret::class,
+            'auth.ets.secret' => \App\Http\Middleware\VerifyEtsSecret::class,
             'access.request' => \App\Http\Middleware\AccessRequestMiddleware::class,
             'debug.auth' => \App\Http\Middleware\DebugAuth::class,
         ]);

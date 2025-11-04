@@ -45,6 +45,7 @@ class SyncUserUpdateJob implements ShouldQueue
         $targets = [
             'ccms' => config('services.ccms_sync'),
             'jobfinder' => config('services.job_finder_sync'),
+            'ets' => config('services.ets_sync'),
         ];
 
         if ($this->syncAllDomains) {
@@ -77,7 +78,6 @@ class SyncUserUpdateJob implements ShouldQueue
 
     protected function syncWithApp($url, $data, $app)
     {
-        Log::info("Syncing user data to {$app}:", $data);
         try {
             Http::timeout(5)->post($url, $data);
             Log::info("User sync successful to {$app} for user: {$data['uuid']}");

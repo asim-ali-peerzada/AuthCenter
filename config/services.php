@@ -47,6 +47,11 @@ return [
         'secret' => env('SYNC_SECRET'),
     ],
 
+    // ETS integration secret used for secure unlock operations
+    'ets' => [
+        'secret' => env('ETS_SECRET'),
+    ],
+
     'domain_urls' => [
         'ccms' => env('CCMS_BASE_URL', 'http://localhost:8000'),
         'jobfinder' => env('JOB_FINDER_BASE_URL', 'http://localhost:8003'),
@@ -59,6 +64,7 @@ return [
     'samsung_base_url' => env('SAMSUNG_BASE_URL', 'http://localhost:8005/api'),
     'job_finder_sync' => env('JOB_FINDER_SYNC', 'http://localhost:8003/api/auth-sync'),
     'ccms_sync' => env('CCMS_SYNC', 'http://localhost:8000/api/auth-sync'),
+    'ets_sync' => env('ETS_SYNC', 'http://localhost:8006/api/auth-sync'),
 
     'delete_user_routes' => [
         'ccms'      => env('CCMS_DELETE_SYNC'),
