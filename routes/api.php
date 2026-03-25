@@ -46,14 +46,6 @@ Route::prefix('auth')->group(function () {
     Route::post('token/exchange', [TokenExchangeController::class, 'tokenExchange'])
         ->middleware('throttle:10,1');
 
-    // sites/hubs data
-    Route::get('sites', [SiteUploadController::class, 'index']);
-    // specific site details
-    Route::post('site-details', [SiteUploadController::class, 'getSiteDetails']);
-
-    // Update hub access details
-    Route::put('sites/{id}/access-details', [SiteUploadController::class, 'updateAccessDetails']);
-
     /* ── protected by jwt guard + blacklist check ── */
     Route::middleware(['auth:jwt', 'jwt.blacklist'])->group(function () {
 
@@ -84,6 +76,14 @@ Route::prefix('auth')->group(function () {
 
         // Domain status
         Route::post('status/domains', [DomainStatusController::class, 'jobFinderStatus']);
+
+        // Update hub access details
+        Route::put('sites/{id}/access-details', [SiteUploadController::class, 'updateAccessDetails']);
+
+        // sites/hubs data
+        Route::get('sites', [SiteUploadController::class, 'index']);
+        // specific site details
+        Route::post('site-details', [SiteUploadController::class, 'getSiteDetails']);
     });
 });
 

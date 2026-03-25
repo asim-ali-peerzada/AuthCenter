@@ -24,10 +24,12 @@ class Domain extends Model
             : null;
     }
 
-    /** Users who can log in to this domain */
+    /** * Users who can log in to this domain 
+     */
     public function users()
     {
         return $this->belongsToMany(User::class, 'user_domain_access')
+            ->using(UserDomainAccess::class)
             ->withTimestamps();
     }
 }

@@ -41,11 +41,10 @@ class AccessAdminController extends Controller
     {
         $user->domains()->detach($domain->id);
 
-        // Update access request status to rejected if any pending request exists
+        // Delete any access requests for this user and domain
         AccessRequest::where('user_uuid', $user->uuid)
             ->where('domain_id', $domain->id)
-            ->where('status', 'pending')
-            ->update(['status' => 'rejected']);
+            ->delete();
 
         // Dispatch job for solucomp domains
         $this->dispatchPagePermissionJob($user, $domain, 'revoke');

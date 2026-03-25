@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessActivationRequestJob;
+use App\Jobs\SyncPagePermissionJob;
 
 class AccessRequestController extends Controller
 {
@@ -341,6 +342,9 @@ class AccessRequestController extends Controller
                             $user->domains()->syncWithoutDetaching([$mainDomain->id]);
                         }
                     }
+
+                    // Dispatch job to sync page permissions on solucomp server
+                    $this->dispatchPagePermissionJob($user, $domain, 'assign');
                 }
             }
 
@@ -565,5 +569,37 @@ class AccessRequestController extends Controller
             'domain_key' => $validated['domain_key'],
             'status' => $validated['status']
         ]);
+    }
+
+    /**
+     * Dispatch page permission job for solucomp domains
+     *
+     * @param User $user
+     * @param Domain $domain
+     * @param string $action
+     * @return void
+     */
+    private function dispatchPagePermissionJob(User $user, Domain $domain, string $action): void
+    {
+        // Check if domain key is one of the solucomp domains
+        if (!in_array($domain->key, ['solucomp_cop', 'solucomp_compare'])) {
+            return;
+        }
+
+        // Determine permission based on domain key
+        $permission = match ($domain->key) {
+            'solucomp_cop' => '/Admin/cop',
+            'solucomp_compare' => '/Admin/compare',
+            default => null,
+        };
+
+        if ($permission) {
+            SyncPagePermissionJob::dispatch(
+                $user->uuid,
+                $permission,
+                $action,
+                $domain->key
+            );
+        }
     }
 }

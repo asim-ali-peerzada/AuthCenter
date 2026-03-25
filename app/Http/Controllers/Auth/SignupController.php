@@ -12,6 +12,7 @@ use App\Services\TwoFactorAuthService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use App\Jobs\SyncNewUserJob;
+use App\Jobs\SendJobfinderEmailVerificationJob;
 
 class SignupController extends Controller
 {
@@ -25,9 +26,14 @@ class SignupController extends Controller
      */
     public function initiate2FA(SignupRequest $request)
     {
+        // If the request originates from jobfinder, bypass 2FA and create user directly
+        if ($request->key === 'jobfinder') {
+            return $this->handleJobfinderSignup($request);
+        }
+
         // Generate 2FA secret
         $secret = $this->twoFactorService->generateSecretKey();
-        
+
         // Store signup data temporarily with the secret
         $sessionId = $this->twoFactorService->storeTempSignupData([
             'first_name' => $request->first_name,
@@ -52,13 +58,69 @@ class SignupController extends Controller
     }
 
     /**
+     * Handle direct signup for jobfinder origin, bypassing 2FA.
+     */
+    private function handleJobfinderSignup(SignupRequest $request)
+    {
+        try {
+            DB::beginTransaction();
+
+            if (User::where('email', $request->email)->exists()) {
+                return response()->json([
+                    'message' => 'Email address is already registered.'
+                ], 422);
+            }
+
+            $user = User::create([
+                'first_name' => $request->first_name,
+                'last_name' => $request->last_name,
+                'email' => $request->email,
+                'user_origin' => $request->key,
+                'password' => bcrypt($request->password),
+                'is_approved' => true,
+                'is_2fa_enabled' => false,
+                'is_2fa_verified' => false,
+            ]);
+
+            $jobfinderDomain = Domain::where('key', 'jobfinder')->first();
+            if ($jobfinderDomain) {
+                $user->domains()->attach($jobfinderDomain->id);
+            } else {
+                Log::warning('Default domain "jobfinder" not found.');
+            }
+
+            // Send email verification link via queued job
+            SendJobfinderEmailVerificationJob::dispatch($user->email);
+
+            DB::commit();
+
+            return response()->json([
+                'requires_email_verification' => true,
+                'show_modal' => true,
+                'message' => 'Registration successful! Please check your email and click the verification link to activate your account.',
+            ], 201);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            Log::error('Jobfinder signup without 2FA failed', [
+                'error' => $e->getMessage(),
+                'email' => $request->email
+            ]);
+
+            return response()->json([
+                'message' => 'Registration failed. Please try again.'
+            ], 500);
+        }
+    }
+
+    /**
      * Step 2: Verify 2FA code and complete signup
      */
     public function completeSignup(SignupWith2FARequest $request)
     {
         // Retrieve temporary signup data
         $tempData = $this->twoFactorService->getTempSignupData($request->session_id);
-        
+
         if (!$tempData) {
             return response()->json([
                 'message' => 'Session expired or invalid. Please start the signup process again.'
@@ -132,13 +194,12 @@ class SignupController extends Controller
                     'is_2fa_enabled' => true,
                 ]
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
-            
+
             // Clear temporary data on error
             $this->twoFactorService->clearTempSignupData($request->session_id);
-            
+
             Log::error('Signup with 2FA failed', [
                 'error' => $e->getMessage(),
                 'email' => $signupData['email']

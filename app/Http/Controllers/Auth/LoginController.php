@@ -57,13 +57,24 @@ class LoginController extends Controller
             return response()->json(['message' => 'Account inactive'], 403);
         }
 
-        if (! $user->is_2fa_verified) {
-            return response()->json([
-                'message' => 'Please configure Two-Factor Authentication using Google Authenticator.',
-                'error'   => '2fa_not_configured',
-                'action'  => 'trigger_2fa_setup_modal',
-                'uuid'    => $user->uuid,
-            ], 403);
+        // For JobFinder users, enforce email verification and bypass 2FA requirement
+        if ($user->user_origin === 'jobfinder') {
+            if (! $user->email_verified_at) {
+                return response()->json([
+                    'message' => 'Please verify your email to continue.',
+                    'error'   => 'email_not_verified',
+                    'action'  => 'show_email_verification_modal',
+                ], 403);
+            }
+        } else {
+            if (! $user->is_2fa_verified) {
+                return response()->json([
+                    'message' => 'Please configure Two-Factor Authentication using Google Authenticator.',
+                    'error'   => '2fa_not_configured',
+                    'action'  => 'trigger_2fa_setup_modal',
+                    'uuid'    => $user->uuid,
+                ], 403);
+            }
         }
 
         if ($request->input('admin_panel')) {

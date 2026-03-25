@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class DomainController extends Controller
 {
@@ -17,6 +18,9 @@ class DomainController extends Controller
      *
      * @param Request $request
      * @return JsonResponse
+     */
+    /**
+     * GET domains for authenticated user and their page permissions.
      */
     public function index(Request $request): JsonResponse
     {
@@ -27,27 +31,27 @@ class DomainController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        // Build domain query with conditional exclusions
-        $domainQuery = Domain::select(['id', 'name', 'url', 'key'])
+        // 1. DOMAINS: Live Database Query (No Cache as requested)
+        $domainQuery = Domain::select(['id', 'name', 'url', 'key', 'image_url', 'detail'])
             ->where('key', '!=', 'solucomp');
 
         // Exclude Samsung domains based on user role
         if ($user->external_role === 'Admin') {
-            // Admin users: exclude samsung2025_dm but allow samsung2025_dm_admin
             $domainQuery->where('key', '!=', 'samsung2025_dm');
         } else {
-            // Non-Admin users: exclude samsung2025_dm_admin but allow samsung2025_dm
             $domainQuery->where('key', '!=', 'samsung2025_dm_admin');
         }
 
         $domains = $domainQuery->get();
 
-        // Optimize assigned domains query - use single query
+
+        // 2. ASSIGNED DOMAINS: Fresh data every time
         $assigned = $user->role === 'Admin'
             ? $domains->pluck('id')->all()
             : $user->domains()->pluck('domains.id')->all();
 
-        // Fetch permissions asynchronously for better performance
+
+        // 3. PERMISSIONS: Fresh data every time
         $permissions = $this->fetchUserPermissions($request, $user);
 
         return response()->json([

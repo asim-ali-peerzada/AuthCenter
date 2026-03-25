@@ -40,6 +40,7 @@ class TokenExchangeController extends Controller
 
             // Find user by UUID
             $user = User::where('uuid', $payload->sub)->firstOrFail();
+            Log::info($user);
 
             // Check if the user account has been approved.
             if (! $user->is_approved) {
@@ -79,7 +80,7 @@ class TokenExchangeController extends Controller
                     'first_name'  => $user->first_name,
                     'last_name'  => $user->last_name,
                     'email' => $user->email,
-                    'roles' => $user->external_role,
+                    'roles' => $user->role,
                     'password' => $user->password,
                 ]
             ]);

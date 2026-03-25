@@ -17,42 +17,94 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Jobs\SyncUserUpdateJob;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder;
 
 
 class UserAdminController extends Controller
 {
     /**
-     * GET Users (Production-Ready with Pagination)
+     * GET Users with pagination and role-based filtering.
+     * 
+     * @param Request $request
+     * @return JsonResponse
      */
     public function index(Request $request): JsonResponse
     {
+        $perPage = $this->getValidatedPerPage($request);
         $authUser = Auth::user();
-        $perPage = $request->get('per_page', 15); // Allow per_page customization, default to 15
 
+        $users = $this->buildUserQuery($authUser)
+            ->paginate($perPage);
+
+        return response()->json(
+            $this->sortByFirstName($users)
+        );
+    }
+
+    /**
+     * Validate and return per_page parameter.
+     */
+    private function getValidatedPerPage(Request $request): int
+    {
+        $perPage = $request->integer('per_page', 15);
+
+        return min(max($perPage, 1), 100); // Clamp between 1-100
+    }
+
+    /**
+     * Build the base query with all filters applied.
+     */
+    private function buildUserQuery(User $authUser): Builder
+    {
         $query = User::with('domains:id,name,url')
             ->where('is_approved', true)
-            ->where('id', '!=', $authUser->id);
+            ->where('id', '!=', $authUser->id)
+            ->orderBy('first_name', 'asc');
 
-        if ($authUser->user_origin === 'site_access_info' && $authUser->external_role === 'Admin') {
+        $this->applyRoleBasedFilters($query, $authUser);
+
+        return $query;
+    }
+
+    /**
+     * Apply filters based on authenticated user's role and origin.
+     */
+    private function applyRoleBasedFilters(Builder $query, User $authUser): void
+    {
+        if ($this->isSiteAccessAdmin($authUser)) {
             $query->where('user_origin', 'site_access_info');
-        } else {
-            $query->where('role', '!=', 'admin')
-                ->where(function ($subQuery) {
-                    $subQuery->where('user_origin', '<>', 'jobfinder')
-                        ->orWhere('external_role', 'Admin');
-                });
+            return;
         }
 
-        $paginatedUsers = $query->orderBy('first_name', 'asc')->paginate($perPage);
+        $query->where('role', '!=', 'admin')
+            ->where(function (Builder $subQuery) {
+                $subQuery->where('user_origin', '!=', 'jobfinder')
+                    ->orWhere('external_role', 'Admin');
+            });
+    }
 
-        $sortedItems = $paginatedUsers->getCollection()->sort(function ($a, $b) {
-            return strcasecmp($a->first_name, $b->first_name);
-        })->values();
+    /**
+     * Check if user is a site_access_info Admin.
+     */
+    private function isSiteAccessAdmin(User $user): bool
+    {
+        return $user->user_origin === 'site_access_info'
+            && $user->external_role === 'Admin';
+    }
 
-        $paginatedUsers->setCollection($sortedItems);
+    /**
+     * Case-insensitive sort by first name on paginated collection.
+     */
+    private function sortByFirstName(LengthAwarePaginator $paginator): LengthAwarePaginator
+    {
+        $sorted = $paginator->getCollection()
+            ->sortBy('first_name', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
 
-        return response()->json($paginatedUsers);
+        $paginator->setCollection($sorted);
+
+        return $paginator;
     }
 
     /**
@@ -292,157 +344,241 @@ class UserAdminController extends Controller
         ]);
     }
 
-    // Users search
+    /**
+     * Search users with filtering and role-based access control.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
     public function search(Request $request): JsonResponse
     {
-        $query = $request->query('query');
-        $status = $request->query('status');
-        $pending = $request->query('pending');
         $authUser = Auth::user();
 
-        $usersQuery = User::query()
-            ->when($pending === 'true', function ($q) {
-                $q->where('is_approved', false);
-            }, function ($q) {
-                $q->where('is_approved', true);
-            })
-            ->where('id', '!=', $authUser->id) // Exclude authenticated user's own record
-            ->with('domains:id,name,url');
-
-        // Check if authenticated user is site access info admin
-        if ($authUser->user_origin === 'site_access_info' && $authUser->external_role === 'Admin') {
-            // Site access info admin: only show site_access_info users
-            $usersQuery->where('user_origin', 'site_access_info');
-        } else {
-            // Traditional admin: exclude admin role and jobfinder users
-            $usersQuery->where('role', '!=', 'admin')
-                ->where(function ($q) {
-                    $q->where(function ($subQ) {
-                        $subQ->where('user_origin', '<>', 'jobfinder')
-                            ->orWhere(function ($subSubQ) {
-                                $subSubQ->where('user_origin', 'jobfinder')
-                                    ->where('external_role', 'Admin');
-                            });
-                    });
-                });
-        }
-        // Apply search if query parameter exists
-        if ($query) {
-            $usersQuery->where(function ($q) use ($query) {
-                $q->where('first_name', 'LIKE', "%{$query}%")
-                    ->orWhere('last_name', 'LIKE', "%{$query}%")
-                    ->orWhere('email', 'LIKE', "%{$query}%");
-            });
-        }
-
-        // Apply status filter if provided and not 'all'
-        if ($status && $status !== 'all') {
-            $usersQuery->where('status', $status);
-        }
-
-        $users = $usersQuery
+        $users = $this->buildSearchQuery($request, $authUser)
             ->orderBy('first_name', 'asc')
             ->get()
-            ->map(function ($user) {
-                return [
-                    'id' => $user->id,
-                    'uuid' => $user->uuid,
-                    'first_name' => $user->first_name,
-                    'last_name' => $user->last_name,
-                    'email' => $user->email,
-                    'status' => $user->status,
-                    'role' => $user->role,
-                    'user_origin' => $user->user_origin,
-                    'is_approved' => $user->is_approved,
-                    'locked_until' => $user->locked_until,
-                    'created_at' => $user->created_at,
-                    'domains' => $user->domains->map(function ($domain) {
-                        return [
-                            'id' => $domain->id,
-                            'name' => $domain->name,
-                            'url' => $domain->url
-                        ];
-                    })
-                ];
-            });
-
-        if ($users->isEmpty()) {
-            return response()->json([]);
-        }
+            ->map(fn($user) => $this->formatUserResponse($user));
 
         return response()->json($users);
     }
 
-    // Users filtered
-    public function filtered(Request $request)
+    /**
+     * Build the search query with all filters applied.
+     */
+    private function buildSearchQuery(Request $request, User $authUser): Builder
     {
-        $authUser = Auth::user();
-        $perPage = $request->get('per_page', 15);
+        $query = User::query()
+            ->where('is_approved', $request->query('pending') === 'true' ? false : true)
+            ->where('id', '!=', $authUser->id)
+            ->with('domains:id,name,url');
 
+        $this->applyRoleBasedFilters($query, $authUser);
+        $this->applySearchFilter($query, $request->query('query'));
+        $this->applyStatusFilter($query, $request->query('status'));
+
+        return $query;
+    }
+
+    /**
+     * Apply search filter to name and email.
+     */
+    private function applySearchFilter(Builder $query, ?string $search): void
+    {
+        if (empty($search)) {
+            return;
+        }
+
+        $query->where(function (Builder $q) use ($search) {
+            $q->where('first_name', 'LIKE', "%{$search}%")
+                ->orWhere('last_name', 'LIKE', "%{$search}%")
+                ->orWhere('email', 'LIKE', "%{$search}%");
+        });
+    }
+
+    /**
+     * Apply status filter if provided.
+     */
+    private function applyStatusFilter(Builder $query, ?string $status): void
+    {
+        if ($status && $status !== 'all') {
+            $query->where('status', $status);
+        }
+    }
+
+    /**
+     * Format user model for JSON response.
+     */
+    private function formatUserResponse(User $user): array
+    {
+        return [
+            'id' => $user->id,
+            'uuid' => $user->uuid,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
+            'status' => $user->status,
+            'role' => $user->role,
+            'user_origin' => $user->user_origin,
+            'is_approved' => $user->is_approved,
+            'locked_until' => $user->locked_until,
+            'created_at' => $user->created_at,
+            'domains' => $user->domains->map(fn($domain) => [
+                'id' => $domain->id,
+                'name' => $domain->name,
+                'url' => $domain->url,
+            ]),
+        ];
+    }
+
+    /**
+     * Get filtered users with pagination and role-based access control.
+     *
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function filtered(Request $request): JsonResponse
+    {
+        $perPage = $this->getValidatedPerPage($request);
+        $authUser = Auth::user();
+
+        $users = $this->buildFilteredQuery($request, $authUser)
+            ->orderBy('first_name', 'asc')
+            ->paginate($perPage);
+
+        return response()->json(
+            $this->transformPaginatedUsers($users)
+        );
+    }
+
+    /**
+     * Build the filtered query with all conditions applied.
+     */
+    private function buildFilteredQuery(Request $request, User $authUser): Builder
+    {
         $query = User::query()
             ->where('is_approved', true)
-            ->where('id', '!=', $authUser->id); // Exclude authenticated user's own record
+            ->where('id', '!=', $authUser->id)
+            ->with('domains:id,name,url');
 
-        // Check if authenticated user is site access info admin
-        if ($authUser->user_origin === 'site_access_info' && $authUser->external_role === 'Admin') {
-            // Site access info admin: only show site_access_info users
+        $this->applyFilteredRoleBasedFilters($query, $authUser);
+        $this->applyFilteredDomainFilter($query, $request->input('domain'));
+        $this->applyFilteredStatusFilter($query, $request->input('status'));
+        $this->applyFilteredRoleFilter($query, $request->input('role'), $request->input('domain'));
+
+        return $query;
+    }
+
+    /**
+     * Apply role-based access control filters for filtered endpoint.
+     */
+    private function applyFilteredRoleBasedFilters(Builder $query, User $authUser): void
+    {
+        if ($this->isSiteAccessAdminFiltered($authUser)) {
             $query->where('user_origin', 'site_access_info');
-        } else {
-            // Traditional admin: exclude admin role
-            $query->where('role', '!=', 'admin');
+            return;
         }
 
-        $domain = $request->input('domain');
-        $status = $request->input('status');
-        $role = $request->input('role');
+        $query->where('role', '!=', 'admin');
+    }
 
-        if ($status === 'admin') {
-            $role = $status;
-            $status = null;
+    /**
+     * Check if user is a site_access_info Admin for filtered endpoint.
+     */
+    private function isSiteAccessAdminFiltered(User $user): bool
+    {
+        return $user->user_origin === 'site_access_info'
+            && $user->external_role === 'Admin';
+    }
+
+    /**
+     * Apply domain filter if provided.
+     */
+    private function applyFilteredDomainFilter(Builder $query, ?string $domain): void
+    {
+        if (empty($domain) || $domain === 'all') {
+            return;
         }
 
-        if ($domain && $domain !== 'all') {
-            $query->whereHas('domains', function ($q) use ($domain) {
-                $q->where('key', $domain);
-            });
+        $query->whereHas('domains', fn(Builder $q) => $q->where('key', $domain));
+    }
+
+    /**
+     * Apply status filter if provided.
+     */
+    private function applyFilteredStatusFilter(Builder $query, ?string $status): void
+    {
+        if (empty($status) || $status === 'all') {
+            return;
         }
 
-        if ($status && $status !== 'all') {
-            if ($status === 'locked') {
-                $query->whereNotNull('locked_until');
-            } else {
-                $query->where('status', $status);
-            }
+        if ($status === 'locked') {
+            $query->whereNotNull('locked_until');
+            return;
         }
 
-        if ($role && $role !== 'all') {
-            $isExternalSearch = ($domain && $domain !== 'all');
-            $roleColumn = $isExternalSearch ? 'external_role' : 'role';
+        $query->where('status', $status);
+    }
 
-            $searchValue = ($isExternalSearch && $role === 'admin') ? 'Admin' : $role;
+    /**
+     * Apply role filter with domain-aware column selection.
+     */
+    private function applyFilteredRoleFilter(Builder $query, ?string $role, ?string $domain): void
+    {
+        // Handle legacy 'admin' status parameter
+        if ($role === 'admin') {
+            $role = 'Admin';
+        }
+
+        $isExternalSearch = !empty($domain) && $domain !== 'all';
+        $roleColumn = $isExternalSearch ? 'external_role' : 'role';
+        $searchValue = $isExternalSearch && $role === 'admin' ? 'Admin' : $role;
+
+        if (!empty($searchValue) && $searchValue !== 'all') {
             $query->where($roleColumn, $searchValue);
-        } else {
-            $query->where('role', '!=', 'admin');
+            return;
         }
 
-        // Exclude users whose user_origin is 'jobfinder', except those whose external_role is 'Admin'
-        $query->where(function ($q) {
-            $q->where('user_origin', '<>', 'jobfinder')
-                ->orWhere(function ($q2) {
-                    $q2->where('user_origin', 'jobfinder')
-                        ->where('external_role', 'Admin');
-                });
-        });
+        // Default: exclude admins
+        $query->where('role', '!=', 'admin');
+    }
 
-        $paginatedUsers = $query->orderBy('first_name', 'asc')->paginate($perPage);
+    /**
+     * Transform paginated users for response.
+     */
+    private function transformPaginatedUsers(LengthAwarePaginator $paginator): LengthAwarePaginator
+    {
+        $transformed = $paginator->getCollection()->map(
+            fn($user) => $this->transformFilteredUser($user)
+        );
 
-         $transformedItems = $paginatedUsers->getCollection()->map(function ($user) {
-            return $this->transformUser($user);
-        });
+        $paginator->setCollection($transformed);
 
-        $paginatedUsers->setCollection($transformedItems);
+        return $paginator;
+    }
 
-        return response()->json($paginatedUsers);
+    /**
+     * Transform user model for JSON response.
+     */
+    private function transformFilteredUser(User $user): array
+    {
+        return [
+            'id' => $user->id,
+            'uuid' => $user->uuid,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
+            'status' => $user->status,
+            'role' => $user->role,
+            'user_origin' => $user->user_origin,
+            'is_approved' => $user->is_approved,
+            'locked_until' => $user->locked_until,
+            'created_at' => $user->created_at,
+            'domains' => $user->domains->map(fn($domain) => [
+                'id' => $domain->id,
+                'name' => $domain->name,
+                'url' => $domain->url,
+            ]),
+        ];
     }
 
     /**

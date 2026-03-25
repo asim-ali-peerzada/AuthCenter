@@ -54,15 +54,15 @@ return [
 
     'domain_urls' => [
         'ccms' => env('CCMS_BASE_URL', 'http://localhost:8000'),
-        'jobfinder' => env('JOB_FINDER_BASE_URL', 'http://localhost:8003'),
+        'jobfinder' => env('JOB_FINDER_BASE_URL', 'http://job-finder.test'),
         'solucomp' => env('SOLUCOMP_BASE_URL', 'http://localhost:8004'),
     ],
 
     'base_url' => env('CCMS_BASE_URL', 'http://localhost:8000/api'),
-    'job_finder_base_url' => env('JOB_FINDER_BASE_URL', 'http://localhost:8003/api'),
+    'job_finder_base_url' => env('JOB_FINDER_BASE_URL', 'http://job-finder.test/api'),
     'solucomp_base_url' => env('SOLUCOMP_BASE_URL', 'http://localhost:8004/api'),
     'samsung_base_url' => env('SAMSUNG_BASE_URL', 'http://localhost:8005/api'),
-    'job_finder_sync' => env('JOB_FINDER_SYNC', 'http://localhost:8003/api/auth-sync'),
+    'job_finder_sync' => env('JOB_FINDER_SYNC', 'http://job-finder.test/api/auth-sync'),
     'ccms_sync' => env('CCMS_SYNC', 'http://localhost:8000/api/auth-sync'),
     'ets_sync' => env('ETS_SYNC', 'http://localhost:8006/api/auth-sync'),
 
@@ -96,6 +96,7 @@ return [
         'jobfinder' => env('JOB_FINDER_DEACTIVATE_INFO'),
     ],
 
-
-
+    'brevo' => [
+        'api_key' => env('BREVO_API_KEY'),
+    ],
 ];
